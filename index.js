@@ -1,4 +1,3 @@
-// index.js
 require("dotenv").config();
 const express = require("express");
 const multer = require("multer");
@@ -17,7 +16,7 @@ const {
   Routes,
   SlashCommandBuilder,
   ChannelType,
-  MessageFlags,
+  MessageFlags
 } = require("discord.js");
 const { google } = require("googleapis");
 
@@ -30,7 +29,7 @@ const {
   PORT = 3010,
   BASE_URL,
   SHEET_ID,
-  GOOGLE_CREDENTIALS,
+  GOOGLE_CREDENTIALS
 } = process.env;
 
 if (!DISCORD_TOKEN || !GUILD_ID || !CLIENT_ID) {
@@ -71,22 +70,24 @@ function getNextSlot() {
 }
 function freeSlot(slot) {
   if (!Number.isInteger(slot)) return;
-  if (!availableSlots.includes(slot)) {
+  if (availableSlots.indexOf(slot) === -1) {
     availableSlots.push(slot);
-    availableSlots.sort((a, b) => a - b);
+    availableSlots.sort(function (a, b) {
+      return a - b;
+    });
   }
 }
 
 // find a team by user or by slot+user
 function findTeamByUser(userId) {
-  return registeredTeams.find(
-    (t) => t.userId === userId && t.status !== "removed"
-  );
+  return registeredTeams.find(function (t) {
+    return t.userId === userId && t.status !== "removed";
+  });
 }
 function findTeamBySlotAndUser(slot, userId) {
-  return registeredTeams.find(
-    (t) => t.slot === slot && t.userId === userId && t.status !== "removed"
-  );
+  return registeredTeams.find(function (t) {
+    return t.slot === slot && t.userId === userId && t.status !== "removed";
+  });
 }
 
 // ---------------------- GOOGLE SHEETS ---------------------- //
@@ -95,10 +96,10 @@ async function appendToGoogleSheet(slot, teamName, teamTag, logoFile, userId) {
   try {
     const auth = new google.auth.GoogleAuth({
       keyFile: GOOGLE_CREDENTIALS,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"]
     });
 
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = google.sheets({ version: "v4", auth: auth });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
@@ -113,10 +114,10 @@ async function appendToGoogleSheet(slot, teamName, teamTag, logoFile, userId) {
             teamTag,
             logoFile || "none",
             userId,
-            new Date().toLocaleString(),
-          ],
-        ],
-      },
+            new Date().toLocaleString()
+          ]
+        ]
+      }
     });
 
     console.log("✔ Added to Google Sheet:", teamName);
@@ -136,137 +137,153 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1000000000);
     const ext = path.extname(file.originalname);
     cb(null, file.fieldname + "-" + uniqueSuffix + ext);
-  },
+  }
 });
-const upload = multer({ storage });
+const upload = multer({ storage: storage });
 
-const publicBaseUrl = BASE_URL || `http://localhost:${PORT}`;
+const publicBaseUrl = BASE_URL || "http://localhost:" + PORT;
 
 // GET /register
-app.get("/register", (req, res) => {
+app.get("/register", function (req, res) {
   if (registeredTeams.length >= MAX_TEAMS || availableSlots.length === 0) {
-    return res.send(`
-      <h1 style="background:black;color:red;text-align:center;padding:40px;">
-        ❌ All slots are full. Registration is closed.
-      </h1>
-    `);
+    return res.send(
+      '<h1 style="background:black;color:red;text-align:center;padding:40px;">' +
+        "❌ All slots are full. Registration is closed." +
+        "</h1>"
+    );
   }
 
   const userId = req.query.user;
   if (!userId) {
-    return res.send(`
-      <h1 style="background:black;color:white;text-align:center;padding:40px;">
-        ⚠ Invalid link<br><br>
-        Please click the **Register Team** button inside Discord again.
-      </h1>
-    `);
+    return res.send(
+      '<h1 style="background:black;color:white;text-align:center;padding:40px;">' +
+        "⚠ Invalid link<br><br>" +
+        "Please click the **Register Team** button inside Discord again." +
+        "</h1>"
+    );
   }
 
   const existing = findTeamByUser(userId);
   if (existing) {
-    return res.send(`
-      <h1 style="background:black;color:lightgreen;text-align:center;padding:40px;">
-        ✅ You are already registered
-      </h1>
-      <p style="background:black;color:white;text-align:center;">
-        Team: <strong>${existing.teamName}</strong> [${existing.teamTag}]<br/>
-        Slot: <strong>${existing.slot}</strong><br/>
-        Status: <strong>${existing.status}</strong>
-      </p>
-    `);
+    return res.send(
+      '<h1 style="background:black;color:lightgreen;text-align:center;padding:40px;">' +
+        "✅ You are already registered" +
+        "</h1>" +
+        '<p style="background:black;color:white;text-align:center;">' +
+        "Team: <strong>" + existing.teamName + "</strong> [" + existing.teamTag + "]<br/>" +
+        "Slot: <strong>" + existing.slot + "</strong><br/>" +
+        "Status: <strong>" + existing.status + "</strong>" +
+        "</p>"
+    );
   }
 
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-      <body style="background:black;color:white;text-align:center;padding:40px;">
-        <h1>Team Registration</h1>
-        <p>Discord ID: <code>${userId}</code></p>
-        <form action="/register" method="POST" enctype="multipart/form-data">
-          <input type="hidden" name="userId" value="${userId}" />
-          <input name="teamName" placeholder="Team Name" required /><br/><br/>
-          <input name="teamTag" placeholder="Team Tag" maxlength="6" required /><br/><br/>
-          <input type="file" name="teamLogo" required /><br/><br/>
-          <button type="submit">Register Team</button>
-        </form>
-      </body>
-    </html>
-  `);
+  res.send(
+    "<!DOCTYPE html>" +
+      "<html>" +
+      '<body style="background:black;color:white;text-align:center;padding:40px;">' +
+      "<h1>Team Registration</h1>" +
+      "<p>Discord ID: <code>" +
+      userId +
+      "</code></p>" +
+      '<form action="/register" method="POST" enctype="multipart/form-data">' +
+      '<input type="hidden" name="userId" value="' + userId + '" />' +
+      '<input name="teamName" placeholder="Team Name" required /><br/><br/>' +
+      '<input name="teamTag" placeholder="Team Tag" maxlength="6" required /><br/><br/>' +
+      '<input type="file" name="teamLogo" required /><br/><br/>' +
+      '<button type="submit">Register Team</button>' +
+      "</form>" +
+      "</body>" +
+      "</html>"
+  );
 });
 
 // POST /register
-app.post("/register", upload.single("teamLogo"), async (req, res) => {
-  const { teamName, teamTag, userId } = req.body;
+app.post("/register", upload.single("teamLogo"), async function (req, res) {
+  const teamName = req.body.teamName;
+  const teamTag = req.body.teamTag;
+  const userId = req.body.userId;
   const file = req.file;
 
   if (!userId) {
-    return res.send(`
-      <h1 style="background:black;color:red;text-align:center;padding:40px;">
-        ⚠ Missing user ID. Please re-open the form from Discord.
-      </h1>
-    `);
+    return res.send(
+      '<h1 style="background:black;color:red;text-align:center;padding:40px;">' +
+        "⚠ Missing user ID. Please re-open the form from Discord." +
+        "</h1>"
+    );
   }
 
   if (registeredTeams.length >= MAX_TEAMS || availableSlots.length === 0) {
-    return res.send(`
-      <h1 style="background:black;color:red;text-align:center;padding:40px;">
-        ❌ All slots are full. Registration is closed.
-      </h1>
-    `);
+    return res.send(
+      '<h1 style="background:black;color:red;text-align:center;padding:40px;">' +
+        "❌ All slots are full. Registration is closed." +
+        "</h1>"
+    );
   }
 
   const existing = findTeamByUser(userId);
   if (existing) {
-    return res.send(`
-      <h1 style="background:black;color:lightgreen;text-align:center;padding:40px;">
-        ✅ You are already registered
-      </h1>
-      <p style="background:black;color:white;text-align:center;">
-        Team: <strong>${existing.teamName}</strong> [${existing.teamTag}]<br/>
-        Slot: <strong>${existing.slot}</strong><br/>
-        Status: <strong>${existing.status}</strong>
-      </p>
-    `);
+    return res.send(
+      '<h1 style="background:black;color:lightgreen;text-align:center;padding:40px;">' +
+        "✅ You are already registered" +
+        "</h1>" +
+        '<p style="background:black;color:white;text-align:center;">' +
+        "Team: <strong>" + existing.teamName + "</strong> [" + existing.teamTag + "]<br/>" +
+        "Slot: <strong>" + existing.slot + "</strong><br/>" +
+        "Status: <strong>" + existing.status + "</strong>" +
+        "</p>"
+    );
   }
 
   const slot = getNextSlot();
   if (!slot) {
-    return res.send(`
-      <h1 style="background:black;color:red;text-align:center;padding:40px;">
-        ❌ All slots are full. Registration is closed.
-      </h1>
-    `);
+    return res.send(
+      '<h1 style="background:black;color:red;text-align:center;padding:40px;">' +
+        "❌ All slots are full. Registration is closed." +
+        "</h1>"
+    );
   }
 
   const team = {
-    slot,
-    teamName,
-    teamTag,
-    logo: file?.filename || null,
-    userId,
+    slot: slot,
+    teamName: teamName,
+    teamTag: teamTag,
+    logo: file ? file.filename : null,
+    userId: userId,
     status: "pending",
-    registeredAt: new Date(),
+    registeredAt: new Date()
   };
   registeredTeams.push(team);
 
   // save to Google Sheets
-  appendToGoogleSheet(slot, teamName, teamTag, team.logo, userId).catch(() => {});
+  appendToGoogleSheet(slot, teamName, teamTag, team.logo, userId).catch(function () {});
 
-  console.log(`Team registered → Slot ${slot}: ${teamName} [${teamTag}] (user ${userId})`);
+  console.log(
+    "Team registered → Slot " +
+      slot +
+      ": " +
+      teamName +
+      " [" +
+      teamTag +
+      "] (user " +
+      userId +
+      ")"
+  );
 
-  // 🔹 NEW: auto-give role right after registration (if approverRoleId is set)
+  // auto-give role right after registration (if approverRoleId is set)
   if (staffConfig.approverRoleId) {
     try {
       const guild = await client.guilds.fetch(GUILD_ID);
       const member = await guild.members.fetch(userId);
       await member.roles.add(staffConfig.approverRoleId);
       console.log(
-        `✅ Gave role ${staffConfig.approverRoleId} to user ${userId} after registration.`
+        "✅ Gave role " + staffConfig.approverRoleId + " to user " + userId + " after registration."
       );
     } catch (err) {
       console.error("Error giving role on registration:", err.message || err);
@@ -284,9 +301,9 @@ app.post("/register", upload.single("teamLogo"), async (req, res) => {
         .setTitle("New Team Registration")
         .setColor(0x5865f2)
         .addFields(
-          { name: "Team", value: `${teamName} [${teamTag}]`, inline: false },
-          { name: "Slot", value: `#${slot}`, inline: true },
-          { name: "Player", value: `<@${userId}> \`(${userId})\``, inline: true },
+          { name: "Team", value: teamName + " [" + teamTag + "]", inline: false },
+          { name: "Slot", value: "#" + slot, inline: true },
+          { name: "Player", value: "<@" + userId + "> `(" + userId + ")`", inline: true }
         )
         .setTimestamp(team.registeredAt);
 
@@ -294,19 +311,19 @@ app.post("/register", upload.single("teamLogo"), async (req, res) => {
         embed.addFields({
           name: "Logo File",
           value: team.logo,
-          inline: false,
+          inline: false
         });
       }
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`approve:${slot}:${userId}`)
+          .setCustomId("approve:" + slot + ":" + userId)
           .setLabel("Approve")
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
-          .setCustomId(`remove:${slot}:${userId}`)
+          .setCustomId("remove:" + slot + ":" + userId)
           .setLabel("Remove")
-          .setStyle(ButtonStyle.Danger),
+          .setStyle(ButtonStyle.Danger)
       );
 
       await staffChannel.send({ embeds: [embed], components: [row] });
@@ -322,8 +339,17 @@ app.post("/register", upload.single("teamLogo"), async (req, res) => {
         const staffChannel = await client.channels.fetch(staffConfig.staffChannelId);
 
         let text = "⛔ **All Registration Slots Are Now Full**\n\n**Final Team List:**\n";
-        registeredTeams.forEach((t) => {
-          text += `• Slot ${t.slot}: ${t.teamName} [${t.teamTag}] (${t.status})\n`;
+        registeredTeams.forEach(function (t) {
+          text +=
+            "• Slot " +
+            t.slot +
+            ": " +
+            t.teamName +
+            " [" +
+            t.teamTag +
+            "] (" +
+            t.status +
+            ")\n";
         });
 
         await staffChannel.send(text);
@@ -336,9 +362,9 @@ app.post("/register", upload.single("teamLogo"), async (req, res) => {
       try {
         const channel = await client.channels.fetch(channelId);
         const messages = await channel.messages.fetch({ limit: 20 });
-        const regMessage = messages.find(
-          (m) => m.author.id === client.user.id && m.components.length > 0
-        );
+        const regMessage = messages.find(function (m) {
+          return m.author.id === client.user.id && m.components.length > 0;
+        });
         if (regMessage) {
           await regMessage.edit({ components: [] });
         }
@@ -349,17 +375,17 @@ app.post("/register", upload.single("teamLogo"), async (req, res) => {
     }
   }
 
-  res.send(`
-    <h1 style="background:black;color:lightgreen;text-align:center;padding:40px;">
-      ✅ Team Registered
-    </h1>
-    <p style="background:black;color:white;text-align:center;">
-      Team: <strong>${teamName}</strong> [${teamTag}]<br/>
-      Slot: <strong>${slot}</strong><br/>
-      Status: <strong>pending</strong><br/>
-      You should now have access to the scrims role in Discord.
-    </p>
-  `);
+  res.send(
+    '<h1 style="background:black;color:lightgreen;text-align:center;padding:40px;">' +
+      "✅ Team Registered" +
+      "</h1>" +
+      '<p style="background:black;color:white;text-align:center;">' +
+      "Team: <strong>" + teamName + "</strong> [" + teamTag + "]<br/>" +
+      "Slot: <strong>" + slot + "</strong><br/>" +
+      'Status: <strong>pending</strong><br/>' +
+      "You should now have access to the scrims role in Discord." +
+      "</p>"
+  );
 });
 
 // static logos if you ever need to serve them
@@ -369,7 +395,7 @@ app.use("/logos", express.static(uploadDir));
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
-  partials: [Partials.Channel],
+  partials: [Partials.Channel]
 });
 
 // embed & button for /startregister
@@ -381,12 +407,11 @@ function buildRegistrationMessage() {
         "Click **Register Team** to get your personal registration link.",
         "",
         "Each Discord account can register **one** team.",
-        `Available slots: **${MIN_SLOT}–${MAX_SLOT}**`,
+        "Available slots: **" + MIN_SLOT + "–" + MAX_SLOT + "**"
       ].join("\n")
     )
     .setColor(0x5865f2);
 
-  // NOTE: not a Link button, we use customId to inject ?user=ID
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("open_register_link")
@@ -394,7 +419,7 @@ function buildRegistrationMessage() {
       .setStyle(ButtonStyle.Primary)
   );
 
-  return { embed, row };
+  return { embed: embed, row: row };
 }
 
 // Slash commands
@@ -403,31 +428,33 @@ async function registerCommands() {
     new SlashCommandBuilder()
       .setName("setstaffchannel")
       .setDescription("Set staff channel for registration notifications")
-      .addChannelOption((opt) =>
-        opt
+      .addChannelOption(function (opt) {
+        return opt
           .setName("channel")
           .setDescription("Staff channel")
-          .setRequired(true)
-      ),
+          .setRequired(true);
+      }),
     new SlashCommandBuilder()
       .setName("setapproverole")
       .setDescription("Set role to give when a team registers")
-      .addRoleOption((opt) =>
-        opt
+      .addRoleOption(function (opt) {
+        return opt
           .setName("role")
           .setDescription("Role to give on registration")
-          .setRequired(true)
-      ),
+          .setRequired(true);
+      }),
     new SlashCommandBuilder()
       .setName("startregister")
       .setDescription("Start registration in this channel")
-      .addChannelOption((opt) =>
-        opt
+      .addChannelOption(function (opt) {
+        return opt
           .setName("channel")
           .setDescription("Channel to post the embed in")
-          .setRequired(true)
-      ),
-  ].map((c) => c.toJSON());
+          .setRequired(true);
+      })
+  ].map(function (c) {
+    return c.toJSON();
+  });
 
   const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
 
@@ -439,17 +466,17 @@ async function registerCommands() {
   console.log("✅ Slash commands registered.");
 }
 
-registerCommands().catch((e) =>
-  console.error("Error registering commands:", e.message || e)
-);
+registerCommands().catch(function (e) {
+  console.error("Error registering commands:", e.message || e);
+});
 
 // ready
-client.once(Events.ClientReady, () => {
-  console.log(`Logged in as ${client.user.tag}`);
+client.once(Events.ClientReady, function () {
+  console.log("Logged in as " + client.user.tag);
 });
 
 // interactions
-client.on(Events.InteractionCreate, async (interaction) => {
+client.on(Events.InteractionCreate, async function (interaction) {
   try {
     // slash commands
     if (interaction.isChatInputCommand()) {
@@ -458,7 +485,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!chan || chan.type !== ChannelType.GuildText) {
           return interaction.reply({
             content: "Please select a **text channel**.",
-            flags: MessageFlags.Ephemeral,
+            flags: MessageFlags.Ephemeral
           });
         }
         staffConfig.staffChannelId = chan.id;
@@ -467,8 +494,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           JSON.stringify(staffConfig, null, 2)
         );
         return interaction.reply({
-          content: `📌 Staff channel set to ${chan}`,
-          flags: MessageFlags.Ephemeral,
+          content: "📌 Staff channel set to " + chan.toString(),
+          flags: MessageFlags.Ephemeral
         });
       }
 
@@ -480,8 +507,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           JSON.stringify(staffConfig, null, 2)
         );
         return interaction.reply({
-          content: `✅ Registration role set to ${role}`,
-          flags: MessageFlags.Ephemeral,
+          content: "✅ Registration role set to " + role.toString(),
+          flags: MessageFlags.Ephemeral
         });
       }
 
@@ -490,18 +517,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!chan || chan.type !== ChannelType.GuildText) {
           return interaction.reply({
             content: "Please select a **text channel**.",
-            flags: MessageFlags.Ephemeral,
+            flags: MessageFlags.Ephemeral
           });
         }
 
-        const { embed, row } = buildRegistrationMessage();
-        await chan.send({ embeds: [embed], components: [row] });
+        const built = buildRegistrationMessage();
+        await chan.send({ embeds: [built.embed], components: [built.row] });
 
         activeRegistrationChannels.add(chan.id);
 
         return interaction.reply({
-          content: `✅ Registration started in ${chan}`,
-          flags: MessageFlags.Ephemeral,
+          content: "✅ Registration started in " + chan.toString(),
+          flags: MessageFlags.Ephemeral
         });
       }
 
@@ -510,36 +537,37 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     // button interactions
     if (interaction.isButton()) {
-      const { customId } = interaction;
+      const customId = interaction.customId;
 
       // user clicks "Register Team" button in public channel
       if (customId === "open_register_link") {
-        const url = `${publicBaseUrl}/register?user=${interaction.user.id}`;
+        const url = publicBaseUrl + "/register?user=" + interaction.user.id;
         return interaction.reply({
-          content: `Here is your personal registration link:\n${url}`,
-          flags: MessageFlags.Ephemeral,
+          content: "Here is your personal registration link:\n" + url,
+          flags: MessageFlags.Ephemeral
         });
       }
 
       // staff clicks Approve / Remove
-      if (customId.startsWith("approve:") || customId.startsWith("remove:")) {
-        const [action, slotStr, userId] = customId.split(":");
+      if (customId.indexOf("approve:") === 0 || customId.indexOf("remove:") === 0) {
+        const parts = customId.split(":");
+        const action = parts[0];
+        const slotStr = parts[1];
+        const userId = parts[2];
         const slot = parseInt(slotStr, 10);
 
         const team = findTeamBySlotAndUser(slot, userId);
         if (!team) {
           return interaction.reply({
             content: "Could not find this registration (maybe already removed).",
-            flags: MessageFlags.Ephemeral,
+            flags: MessageFlags.Ephemeral
           });
         }
 
         if (action === "approve") {
           team.status = "accepted";
 
-          // 🔹 CHANGED: we no longer give the role here,
-          // because it's already given at registration time.
-
+          // we no longer give the role here, it's already given at registration time
           const disabledRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
               .setCustomId(customId)
@@ -554,12 +582,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
           );
 
           await interaction.update({
-            components: [disabledRow],
+            components: [disabledRow]
           });
 
           return interaction.followUp({
-            content: `✅ Approved team **${team.teamName} [${team.teamTag}]** (slot ${team.slot}).`,
-            flags: MessageFlags.Ephemeral,
+            content:
+              "✅ Approved team **" +
+              team.teamName +
+              " [" +
+              team.teamTag +
+              "]** (slot " +
+              team.slot +
+              ").",
+            flags: MessageFlags.Ephemeral
           });
         }
 
@@ -567,7 +602,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           team.status = "removed";
           freeSlot(team.slot);
 
-          const disabledRow = new ActionRowBuilder().addComponents(
+          const disabledRow2 = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
               .setCustomId("noop_approve")
               .setLabel("Approve")
@@ -581,33 +616,40 @@ client.on(Events.InteractionCreate, async (interaction) => {
           );
 
           await interaction.update({
-            components: [disabledRow],
+            components: [disabledRow2]
           });
 
           return interaction.followUp({
-            content: `⛔ Removed team **${team.teamName} [${team.teamTag}]** and freed slot ${team.slot}.`,
-            flags: MessageFlags.Ephemeral,
+            content:
+              "⛔ Removed team **" +
+              team.teamName +
+              " [" +
+              team.teamTag +
+              "]** and freed slot " +
+              team.slot +
+              ".",
+            flags: MessageFlags.Ephemeral
           });
         }
       }
     }
   } catch (err) {
     console.error("Interaction error:", err.message || err);
-    if (interaction.isRepliable()) {
+    if (interaction.isRepliable && interaction.isRepliable()) {
       interaction
         .reply({
           content: "❌ Something went wrong handling this interaction.",
-          flags: MessageFlags.Ephemeral,
+          flags: MessageFlags.Ephemeral
         })
-        .catch(() => {});
+        .catch(function () {});
     }
   }
 });
 
 // ---------------------- START ---------------------- //
 
-app.listen(PORT, () => {
-  console.log(`Web server running on ${publicBaseUrl}`);
+app.listen(PORT, function () {
+  console.log("Web server running on " + publicBaseUrl);
 });
 
 client.login(DISCORD_TOKEN);
