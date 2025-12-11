@@ -1,6 +1,7 @@
 // index.js
 require("dotenv").config();
 const express = require("express");
+const session = require("express-session");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -31,6 +32,13 @@ const {
   BASE_URL,
   SHEET_ID,
   GOOGLE_CREDENTIALS,
+
+  // Panel / OAuth
+  PANEL_CLIENT_ID,
+  PANEL_CLIENT_SECRET,
+  PANEL_REDIRECT_URI,
+  PANEL_SESSION_SECRET,
+  PANEL_ADMIN_IDS,
 } = process.env;
 
 if (!DISCORD_TOKEN || !GUILD_ID || !CLIENT_ID) {
@@ -40,6 +48,11 @@ if (!DISCORD_TOKEN || !GUILD_ID || !CLIENT_ID) {
 if (!SHEET_ID || !GOOGLE_CREDENTIALS) {
   console.warn(
     "⚠ Google Sheets not fully configured (SHEET_ID / GOOGLE_CREDENTIALS). Sheets append may fail."
+  );
+}
+if (!PANEL_CLIENT_ID || !PANEL_CLIENT_SECRET || !PANEL_REDIRECT_URI) {
+  console.warn(
+    "⚠ Panel OAuth not fully configured (PANEL_CLIENT_ID / PANEL_CLIENT_SECRET / PANEL_REDIRECT_URI). /panel login will not work."
   );
 }
 
@@ -129,6 +142,20 @@ async function appendToGoogleSheet(slot, teamName, teamTag, logoFile, userId) {
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
+
+// sessions (for panel login)
+app.use(
+  session({
+    secret: PANEL_SESSION_SECRET || "change-me-please",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: BASE_URL?.startsWith("https://") || false,
+    },
+  })
+);
 
 // 🔥 Styled HTML helper
 function renderPage({ title, body }) {
@@ -428,6 +455,10 @@ function renderPage({ title, body }) {
           border: 1px solid rgba(148, 163, 184, 0.45);
         }
 
+        a {
+          color: var(--accent);
+        }
+
         @media (max-width: 520px) {
           .card { padding: 22px 18px 18px; }
           h1 { font-size: 22px; }
@@ -465,7 +496,331 @@ const upload = multer({ storage });
 
 const publicBaseUrl = BASE_URL || `http://localhost:${PORT}`;
 
-// ---------------------- ROUTES ---------------------- //
+// ---------------------- PANEL HELPERS ---------------------- //
+
+const adminIds = (PANEL_ADMIN_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function isPanelAdmin(discordUserId) {
+  if (!discordUserId) return false;
+  if (adminIds.length === 0) return true; // if no admin list, allow any logged-in user
+  return adminIds.includes(discordUserId);
+}
+
+function requirePanelAuth(req, res, next) {
+  if (!req.session || !req.session.discordUser) {
+    return res.send(
+      renderPage({
+        title: "Panel Login",
+        body: `
+          <div class="badge">
+            <span class="badge-dot"></span>
+            DARKSIDE CONTROL
+          </div>
+          <h1>Staff Panel</h1>
+          <p class="tagline">
+            Login with your Discord account to manage scrim registrations.
+          </p>
+          <hr class="divider" />
+          <div class="center-text">
+            <p>Only authorized staff accounts can access this panel.</p>
+            <form action="/auth/discord" method="GET" style="margin-top: 18px;">
+              <button type="submit">
+                Login with Discord
+              </button>
+            </form>
+          </div>
+        `,
+      })
+    );
+  }
+  if (!isPanelAdmin(req.session.discordUser.id)) {
+    return res.send(
+      renderPage({
+        title: "Access Denied",
+        body: `
+          <div class="badge">
+            <span class="badge-dot"></span>
+            PANEL ACCESS
+          </div>
+          <h1>No Access</h1>
+          <p class="tagline">
+            This Discord account is not allowed to use the DarkSide panel.
+          </p>
+          <hr class="divider" />
+          <div class="status-big error">
+            ⚠ If you believe this is a mistake, contact the server owner.
+          </div>
+        `,
+      })
+    );
+  }
+  next();
+}
+
+// ---------------------- PANEL AUTH (DISCORD OAUTH) ---------------------- //
+
+app.get("/auth/discord", (req, res) => {
+  if (!PANEL_CLIENT_ID || !PANEL_REDIRECT_URI) {
+    return res.send(
+      renderPage({
+        title: "Auth Error",
+        body: `
+          <div class="badge">
+            <span class="badge-dot"></span>
+            AUTH
+          </div>
+          <h1>Login Disabled</h1>
+          <p class="tagline">Panel OAuth is not configured on the server.</p>
+          <hr class="divider" />
+          <div class="status-big error">
+            ⚠ Ask the owner to set PANEL_CLIENT_ID, PANEL_CLIENT_SECRET and PANEL_REDIRECT_URI in .env.
+          </div>
+        `,
+      })
+    );
+  }
+
+  const redirect = encodeURIComponent(PANEL_REDIRECT_URI);
+  const scope = encodeURIComponent("identify");
+  const url = `https://discord.com/oauth2/authorize?response_type=code&client_id=${PANEL_CLIENT_ID}&scope=${scope}&redirect_uri=${redirect}&prompt=consent`;
+  res.redirect(url);
+});
+
+app.get("/auth/discord/callback", async (req, res) => {
+  const code = req.query.code;
+  if (!code) {
+    return res.send(
+      renderPage({
+        title: "Auth Error",
+        body: `
+          <div class="badge">
+            <span class="badge-dot"></span>
+            AUTH
+          </div>
+          <h1>Login Failed</h1>
+          <p class="tagline">Missing authorization code from Discord.</p>
+          <hr class="divider" />
+          <div class="status-big error">
+            ⚠ Please try logging in again from <a href="/panel">the panel</a>.
+          </div>
+        `,
+      })
+    );
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.append("client_id", PANEL_CLIENT_ID);
+    params.append("client_secret", PANEL_CLIENT_SECRET);
+    params.append("grant_type", "authorization_code");
+    params.append("code", code);
+    params.append("redirect_uri", PANEL_REDIRECT_URI);
+
+    const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      body: params,
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    });
+
+    if (!tokenRes.ok) {
+      console.error("Token exchange failed:", tokenRes.status);
+      throw new Error("Token exchange failed");
+    }
+
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+
+    const userRes = await fetch("https://discord.com/api/users/@me", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (!userRes.ok) {
+      console.error("Failed to fetch user:", userRes.status);
+      throw new Error("Failed to fetch user");
+    }
+    const user = await userRes.json();
+
+    if (!isPanelAdmin(user.id)) {
+      return res.send(
+        renderPage({
+          title: "Access Denied",
+          body: `
+            <div class="badge">
+              <span class="badge-dot"></span>
+              PANEL ACCESS
+            </div>
+            <h1>No Access</h1>
+            <p class="tagline">
+              This Discord account is not allowed to use the DarkSide panel.
+            </p>
+            <hr class="divider" />
+            <div class="status-big error">
+              ⚠ If you believe this is a mistake, contact the server owner.
+            </div>
+          `,
+        })
+      );
+    }
+
+    req.session.discordUser = {
+      id: user.id,
+      username: user.username,
+      global_name: user.global_name,
+      avatar: user.avatar,
+    };
+
+    res.redirect("/panel");
+  } catch (err) {
+    console.error("OAuth callback error:", err);
+    return res.send(
+      renderPage({
+        title: "Auth Error",
+        body: `
+          <div class="badge">
+            <span class="badge-dot"></span>
+            AUTH
+          </div>
+          <h1>Login Failed</h1>
+          <p class="tagline">Something went wrong during Discord login.</p>
+          <hr class="divider" />
+          <div class="status-big error">
+            ⚠ Please try again in a moment.
+          </div>
+        `,
+      })
+    );
+  }
+});
+
+app.get("/auth/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.redirect("/panel");
+  });
+});
+
+// ---------------------- PANEL UI + ACTIONS ---------------------- //
+
+app.get("/panel", requirePanelAuth, (req, res) => {
+  const user = req.session.discordUser;
+  const rows = registeredTeams
+    .filter((t) => t.status !== "removed")
+    .sort((a, b) => a.slot - b.slot)
+    .map(
+      (t) => `
+      <tr>
+        <td>#${t.slot}</td>
+        <td>${t.teamName} [${t.teamTag}]</td>
+        <td><code>${t.userId}</code></td>
+        <td>${t.status}</td>
+        <td>
+          <form action="/panel/team/${t.slot}/accept" method="POST" style="display:inline;">
+            <button type="submit" style="font-size:11px;padding:4px 8px;border-radius:999px;border:none;cursor:pointer;background:#22c55e;color:#020617;">Accept</button>
+          </form>
+          <form action="/panel/team/${t.slot}/remove" method="POST" style="display:inline;margin-left:4px;">
+            <button type="submit" style="font-size:11px;padding:4px 8px;border-radius:999px;border:none;cursor:pointer;background:#ef4444;color:#f9fafb;">Remove</button>
+          </form>
+        </td>
+      </tr>
+    `
+    )
+    .join("");
+
+  return res.send(
+    renderPage({
+      title: "DarkSide Panel",
+      body: `
+        <div class="badge">
+          <span class="badge-dot"></span>
+          DARKSIDE SCRIM CONTROL
+        </div>
+
+        <h1>
+          Staff Panel
+          <span style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-sub);">
+            LIVE LOBBY
+          </span>
+        </h1>
+
+        <p class="tagline">
+          Manage current team registrations for your scrim lobby.
+        </p>
+
+        <div class="status-pill" style="margin-bottom:10px;">
+          <span class="status-dot green"></span>
+          Logged in as <code>${user.username}</code>
+          <a href="/auth/logout" style="margin-left:8px;font-size:11px;color:var(--text-sub);text-decoration:none;">(logout)</a>
+        </div>
+
+        <hr class="divider" />
+
+        <div style="max-height:340px;overflow:auto;border-radius:12px;border:1px solid rgba(148,163,184,0.4);background:rgba(15,23,42,0.85);">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:rgba(15,23,42,0.95);">
+                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Slot</th>
+                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Team</th>
+                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">User</th>
+                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Status</th>
+                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || `<tr><td colspan="5" style="padding:10px 12px;color:var(--text-sub);font-size:12px;">No teams registered yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+
+        <p class="note">
+          Changes here affect <span>this bot instance</span> only. Slot state is
+          kept in memory and Google Sheets for logging.
+        </p>
+      `,
+    })
+  );
+});
+
+app.post("/panel/team/:slot/accept", requirePanelAuth, async (req, res) => {
+  const slot = parseInt(req.params.slot, 10);
+  const team = registeredTeams.find((t) => t.slot === slot && t.status !== "removed");
+  if (!team) {
+    return res.redirect("/panel");
+  }
+
+  team.status = "accepted";
+
+  if (staffConfig.approverRoleId && client.guilds.cache.has(GUILD_ID)) {
+    try {
+      const guild = await client.guilds.fetch(GUILD_ID);
+      const member = await guild.members.fetch(team.userId);
+      await member.roles.add(staffConfig.approverRoleId);
+    } catch (err) {
+      console.error("Panel: error giving role:", err.message || err);
+    }
+  }
+
+  return res.redirect("/panel");
+});
+
+app.post("/panel/team/:slot/remove", requirePanelAuth, (req, res) => {
+  const slot = parseInt(req.params.slot, 10);
+  const team = registeredTeams.find((t) => t.slot === slot && t.status !== "removed");
+  if (!team) {
+    return res.redirect("/panel");
+  }
+
+  team.status = "removed";
+  freeSlot(team.slot);
+
+  return res.redirect("/panel");
+});
+
+// ---------------------- REGISTER ROUTES (PUBLIC) ---------------------- //
 
 // GET /register (styled)
 app.get("/register", (req, res) => {
@@ -748,7 +1103,7 @@ app.post("/register", upload.single("teamLogo"), async (req, res) => {
     slot,
     teamName,
     teamTag,
-    logo: file?.filename || null,
+    logo: file ? file.filename : null,
     userId,
     status: "pending",
     registeredAt: new Date(),
