@@ -1059,99 +1059,55 @@ app.post("/scrims/new", requireLogin, (req, res) => {
 // ✅ MANAGE SCRIM PAGE (THIS FIXES /scrims/:id)
 app.get("/scrims/:id", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
-  const scrimId = Number(req.params.id);
+  if (!guildId) return res.redirect("/servers");
 
+  const scrimId = Number(req.params.id);
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  const templates = listTemplates();
-  const templateOptions =
-    templates.length === 0
-      ? `<option value="">(no templates folder)</option>`
-      : templates
-          .map((t) => `<option value="${esc(t)}" ${scrim.slot_template === t ? "selected" : ""}>${esc(t)}</option>`)
-          .join("");
+  res.send(renderLayout({
+    title: `Scrim ${scrim.id}`,
+    user: req.session.user,
+    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+    active: "scrims",
+    body: `
+      <h2 class="h">${esc(scrim.name)}</h2>
+      <p class="muted">Choose what you want to manage.</p>
 
-  res.send(
-    renderLayout({
-      title: `Manage ${scrim.name}`,
-      user: req.session.user,
-      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
-      active: "scrims",
-      body: `
-        <h2 class="h">Manage: ${esc(scrim.name)}</h2>
+      <div class="grid4">
+        <a class="tile" href="/scrims/${scrimId}/settings">
+          <div class="ico">⚙️</div>
+          <div><p class="t1">Settings</p><p class="t2">Channels, role, times, limits</p></div>
+        </a>
 
-        <form method="POST" action="/scrims/${scrimId}/edit">
-          <label>Scrim Name</label>
-          <input name="name" value="${esc(scrim.name)}" required />
+        <a class="tile" href="/scrims/${scrimId}/messages">
+          <div class="ico">📨</div>
+          <div><p class="t1">Messages</p><p class="t2">Post Reg/List/Confirm embeds</p></div>
+        </a>
 
-          <div class="row">
-            <div><label>Min Slot</label><input name="minSlot" type="number" value="${scrim.min_slot}" required/></div>
-            <div><label>Max Slot</label><input name="maxSlot" type="number" value="${scrim.max_slot}" required/></div>
-          </div>
+        <a class="tile" href="/scrims/${scrimId}/slots">
+          <div class="ico">🎞️</div>
+          <div><p class="t1">Slots</p><p class="t2">Template, spam mode, post all GIF slots</p></div>
+        </a>
 
-          <label>Registration Channel ID</label>
-          <input name="registrationChannelId" value="${esc(scrim.registration_channel_id || "")}" />
+        <a class="tile" href="/scrims/${scrimId}/results">
+          <div class="ico">🏆</div>
+          <div><p class="t1">Results</p><p class="t2">Enter G1–G4 points</p></div>
+        </a>
+      </div>
 
-          <label>Teams List Channel ID</label>
-          <input name="listChannelId" value="${esc(scrim.list_channel_id || "")}" />
-
-          <label>Confirm Channel ID</label>
-          <input name="confirmChannelId" value="${esc(scrim.confirm_channel_id || "")}" />
-
-          <label>Team Role ID (auto give)</label>
-          <input name="teamRoleId" value="${esc(scrim.team_role_id || "")}" />
-
-          <div class="row">
-            <div><label>Reg Open Time</label><input name="openAt" value="${esc(scrim.open_at || "")}" /></div>
-            <div><label>Reg Close Time</label><input name="closeAt" value="${esc(scrim.close_at || "")}" /></div>
-          </div>
-
-          <div class="row">
-            <div><label>Confirms Open Time</label><input name="confirmOpenAt" value="${esc(scrim.confirm_open_at || "")}" /></div>
-            <div><label>Confirms Close Time</label><input name="confirmCloseAt" value="${esc(scrim.confirm_close_at || "")}" /></div>
-          </div>
-
-          <button type="submit">Save Settings</button>
+      <div style="margin-top:14px" class="smallrow">
+        <form method="POST" action="/scrims/${scrimId}/toggleReg" style="margin:0">
+          <button class="btn2" type="submit">${scrim.registration_open ? "Close Registration" : "Open Registration"}</button>
         </form>
-
-        <hr style="border:none;height:1px;background:rgba(255,255,255,.08);margin:18px 0"/>
-
-        <h3 class="h">Slots GIF posting</h3>
-        <form method="POST" action="/scrims/${scrimId}/slotSettings">
-          <label>GIF Template</label>
-          <select name="slot_template">${templateOptions}</select>
-
-          <label>Slots Channel ID</label>
-          <input name="slots_channel_id" value="${esc(scrim.slots_channel_id || "")}" placeholder="channel id for slots" />
-
-          <label>Spam Mode (post ALL slots at once)</label>
-          <select name="slots_spam">
-            <option value="0" ${Number(scrim.slots_spam || 0) === 0 ? "selected" : ""}>OFF</option>
-            <option value="1" ${Number(scrim.slots_spam || 0) === 1 ? "selected" : ""}>ON</option>
-          </select>
-
-          <button type="submit">Save Slot Settings</button>
+        <form method="POST" action="/scrims/${scrimId}/toggleConfirm" style="margin:0">
+          <button class="btn2" type="submit">${scrim.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
         </form>
-
-        <div class="row" style="margin-top:12px">
-          <form method="POST" action="/scrims/${scrimId}/toggleReg" style="margin:0"><button class="btn2" type="submit">${scrim.registration_open ? "Close Reg" : "Open Reg"}</button></form>
-          <form method="POST" action="/scrims/${scrimId}/toggleConfirm" style="margin:0"><button class="btn2" type="submit">${scrim.confirm_open ? "Close Confirms" : "Open Confirms"}</button></form>
-          <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0"><button class="btn2" type="submit">Post Reg Embed</button></form>
-          <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post/Update List</button></form>
-          <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post/Update Confirm</button></form>
-        </div>
-
-        <div class="row" style="margin-top:10px">
-          <form method="POST" action="/scrims/${scrimId}/postSlots" style="margin:0">
-            <button type="submit">🎞️ Post Slots GIFs</button>
-          </form>
-          <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}/results">Go Results</a>
-        </div>
-      `,
-    })
-  );
+      </div>
+    `
+  }));
 });
+
 
 // Save slot settings
 app.post("/scrims/:id/slotSettings", requireLogin, (req, res) => {
@@ -1527,5 +1483,6 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
