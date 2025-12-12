@@ -637,9 +637,41 @@ app.get("/logout", (req, res) => {
 });
 
 // ---------------------- PANEL ROUTES ---------------------- //
-app.get("/", (req, res) => res.redirect("/panel"));
+app.get("/", (req, res) => {
+  const logged = !!req.session.user;
 
-app.get("/panel", requireLogin, (req, res) => {
+  return res.send(
+    renderLayout({
+      title: "DarkSide",
+      user: req.session.user || null,
+      selectedGuild: null,
+      active: "",
+      body: `
+        <h2 class="h">DarkSide Scrims</h2>
+        <p class="muted">Manage scrims, open/close registration, confirms, and results.</p>
+
+        ${
+          logged
+            ? `
+              <div class="row" style="margin-top:12px">
+                <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/servers">Go to Panel</a>
+                <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/logout">Logout</a>
+              </div>
+            `
+            : `
+              <div class="row" style="margin-top:12px">
+                <a style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/auth/discord">Login with Discord</a>
+              </div>
+            `
+        }
+      `,
+    })
+  );
+});
+
+
+app.get("/panel", (req, res) => {
+  if (!req.session.user) return res.redirect("/");   // landing page
   if (!req.session.selectedGuildId) return res.redirect("/servers");
   return res.redirect("/scrims");
 });
@@ -1259,3 +1291,4 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
