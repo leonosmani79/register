@@ -1003,49 +1003,41 @@ app.get("/auth/discord/callback", async (req, res) => {
   }
 });
 
-app.get("/logout", (req, res) => {
-  req.session.destroy(() => res.redirect("/"));
-});
-
-// ---------------------- PANEL ROUTES ---------------------- //
+// LANDING (HOME)
 app.get("/", (req, res) => {
-  const logged = !!req.session.user;
-
-  return res.send(
-    renderLayout({
-      title: "DarkSide",
+  res.send(
+    renderLanding({
+      title: "DarkSideORG — Login",
       user: req.session.user || null,
-      selectedGuild: null,
-      active: "",
-      body: `
-        <h2 class="h">DarkSide Scrims</h2>
-        <p class="muted">Manage scrims, open/close registration, confirms, and results.</p>
-
-        ${
-          logged
-            ? `
-              <div class="row" style="margin-top:12px">
-                <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/servers">Go to Panel</a>
-                <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/logout">Logout</a>
-              </div>
-            `
-            : `
-              <div class="row" style="margin-top:12px">
-                <a style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/auth/discord">Login with Discord</a>
-              </div>
-            `
-        }
-      `,
+      error: req.query.err ? "Login failed. Please try again." : "",
     })
   );
 });
 
-
-app.get("/panel", (req, res) => {
-  if (!req.session.user) return res.redirect("/");   // landing page
+// Keep /panel working, but only redirect AFTER login
+app.get("/panel", requireLogin, (req, res) => {
+  // If no guild selected, go servers first (your flow)
   if (!req.session.selectedGuildId) return res.redirect("/servers");
   return res.redirect("/scrims");
 });
+
+// LOGOUT (POST) => clears session and returns to / (NOT /auth/discord)
+app.post("/logout", (req, res) => {
+  req.session.destroy(() => {
+    // clear cookie too
+    res.clearCookie("ds_scrims_session");
+    res.redirect("/");
+  });
+});
+
+// Optional GET /logout (if you want click links too)
+app.get("/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie("ds_scrims_session");
+    res.redirect("/");
+  });
+});
+
 
 // ✅ ONLY show servers the user can manage AND that already have the bot
 app.get("/servers", requireLogin, async (req, res) => {
@@ -1662,6 +1654,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
