@@ -281,41 +281,68 @@ async function ensureConfirmMessage(scrim) {
 
 async function updateConfirmEmbed(scrim) {
   if (!scrim.confirm_channel_id || !scrim.confirm_message_id) return;
+
   const guild = await discord.guilds.fetch(scrim.guild_id);
   const channel = await guild.channels.fetch(scrim.confirm_channel_id).catch(() => null);
-  if (!channel || channel.type !== ChannelType.GuildText) return;
+  if (!channel) return;
 
   const msg = await channel.messages.fetch(scrim.confirm_message_id).catch(() => null);
   if (!msg) return;
 
+  const statusLine = scrim.confirm_open
+    ? "🟢 **CONFIRMS ARE OPEN**"
+    : "🔴 **CONFIRMS ARE CLOSED**";
+
+  const timeBlock = [
+    scrim.confirm_open_at ? `⏱ **Open:** ${scrim.confirm_open_at}` : null,
+    scrim.confirm_close_at ? `⏳ **Close:** ${scrim.confirm_close_at}` : null,
+  ].filter(Boolean);
+
   const embed = new EmbedBuilder()
-    .setTitle(`${scrim.name} — CONFIRMS`)
+    .setColor(scrim.confirm_open ? 0x22c55e : 0xef4444)
+    .setTitle(`✅ ${scrim.name} — CONFIRMATION`)
     .setDescription(
       [
-        scrim.confirm_open_at ? `Open: **${scrim.confirm_open_at}**` : null,
-        scrim.confirm_close_at ? `Close: **${scrim.confirm_close_at}**` : null,
+        statusLine,
         "",
-        scrim.confirm_open ? "✅ Confirms are **OPEN**" : "❌ Confirms are **CLOSED**",
+        "Only teams that **registered** can confirm or drop.",
+        "If you confirm, your slot becomes **locked** ✅",
         "",
-        "Only teams that registered can confirm/drop.",
+        timeBlock.length ? "**Schedule**" : null,
+        ...timeBlock,
       ].filter(Boolean).join("\n")
     )
-    .setColor(0xffb300);
+    .setFooter({
+      text: `DarkSide Scrims • Scrim ID: ${scrim.id}`,
+    })
+    .setTimestamp(new Date());
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`confirm:${scrim.id}`).setLabel("Confirm Slot").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`drop:${scrim.id}`).setLabel("Drop Slot").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`confirm:${scrim.id}`)
+      .setLabel("Confirm Slot")
+      .setEmoji("✅")
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(!scrim.confirm_open),
+
+    new ButtonBuilder()
+      .setCustomId(`drop:${scrim.id}`)
+      .setLabel("Drop Slot")
+      .setEmoji("🗑️")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!scrim.confirm_open)
   );
 
   await msg.edit({ content: "", embeds: [embed], components: [row] });
 }
+
 
 async function updateTeamsListEmbed(scrim) {
   if (!scrim.list_channel_id || !scrim.list_message_id) return;
 
   const guild = await discord.guilds.fetch(scrim.guild_id);
   const channel = await guild.channels.fetch(scrim.list_channel_id).catch(() => null);
-  if (!channel || channel.type !== ChannelType.GuildText) return;
+  if (!channel) return;
 
   const msg = await channel.messages.fetch(scrim.list_message_id).catch(() => null);
   if (!msg) return;
@@ -323,21 +350,47 @@ async function updateTeamsListEmbed(scrim) {
   const teams = q.teamsByScrim.all(scrim.id);
   const totalSlots = scrim.max_slot - scrim.min_slot + 1;
 
+  const teamBySlot = new Map(teams.map((t) => [t.slot, t]));
+
+  // Build slot lines
   const lines = [];
   for (let s = scrim.min_slot; s <= scrim.max_slot; s++) {
-    const t = teams.find((x) => x.slot === s);
-    if (!t) lines.push(`**#${s}** — *(empty)*`);
-    else lines.push(`**#${t.slot}** — **${t.team_name}** [**${t.team_tag}**] ${t.confirmed ? "✅" : "⏳"}`);
+    const t = teamBySlot.get(s);
+    if (!t) {
+      lines.push(`**#${s}** ┃ _empty_`);
+    } else {
+      const status = t.confirmed ? "✅" : "⏳";
+      lines.push(`**#${s}** ┃ **${t.team_tag}** — ${t.team_name} ${status}`);
+    }
   }
 
+  // Split into 2 columns to look cleaner
+  const half = Math.ceil(lines.length / 2);
+  const left = lines.slice(0, half).join("\n");
+  const right = lines.slice(half).join("\n");
+
   const embed = new EmbedBuilder()
-    .setTitle(`${scrim.name} — Teams (${teams.length}/${totalSlots})`)
-    .setDescription(lines.join("\n"))
-    .setColor(0x5865f2)
-    .setFooter({ text: `REG: ${scrim.registration_open ? "OPEN" : "CLOSED"} | CONFIRMS: ${scrim.confirm_open ? "OPEN" : "CLOSED"}` });
+    .setColor(0xffb300)
+    .setTitle(`📋 ${scrim.name} — TEAM LIST`)
+    .setDescription(
+      [
+        `👥 **Teams:** ${teams.length}/${totalSlots}`,
+        `📝 **Registration:** ${scrim.registration_open ? "🟢 OPEN" : "🔴 CLOSED"}`,
+        `✅ **Confirms:** ${scrim.confirm_open ? "🟢 OPEN" : "🔴 CLOSED"}`,
+        "",
+        "✅ = confirmed • ⏳ = waiting",
+      ].join("\n")
+    )
+    .addFields(
+      { name: "Slots", value: left || "_none_", inline: true },
+      { name: "⠀", value: right || "_none_", inline: true }
+    )
+    .setFooter({ text: `DarkSide Scrims • Scrim ID: ${scrim.id}` })
+    .setTimestamp(new Date());
 
   const components = [];
 
+  // Staff remove select (only filled)
   const filled = teams.map((t) => ({
     label: `Remove #${t.slot} — ${t.team_tag}`,
     description: t.team_name.slice(0, 90),
@@ -349,7 +402,7 @@ async function updateTeamsListEmbed(scrim) {
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId(`rmteam:${scrim.id}`)
-          .setPlaceholder("Staff: remove a team...")
+          .setPlaceholder("🛠 Staff: remove a team...")
           .addOptions(filled.slice(0, 25))
       )
     );
@@ -357,11 +410,15 @@ async function updateTeamsListEmbed(scrim) {
 
   components.push(
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`refreshlist:${scrim.id}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder()
+        .setCustomId(`refreshlist:${scrim.id}`)
+        .setLabel("Refresh List")
+        .setEmoji("🔄")
+        .setStyle(ButtonStyle.Secondary)
     )
   );
 
-  await msg.edit({ embeds: [embed], components });
+  await msg.edit({ content: "", embeds: [embed], components });
 }
 
 // ---------- DISCORD INTERACTIONS ----------
@@ -1714,6 +1771,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
