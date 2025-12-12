@@ -476,6 +476,47 @@ discord.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isRepliable()) interaction.reply({ content: "❌ Error.", ephemeral: true }).catch(() => {});
   }
 });
+// ---------------------- EMBED BUILDERS (REG/CONFIRM) ---------------------- //
+
+function buildRegEmbed(scrim, guild, teamsCount = 0) {
+  const totalSlots = scrim.max_slot - scrim.min_slot + 1;
+
+  return new EmbedBuilder()
+    .setTitle(`📝 ${scrim.name} — REGISTRATION`)
+    .setColor(scrim.registration_open ? 0x5865f2 : 0xff4b4b)
+    .setDescription(
+      [
+        "━━━━━━━━━━━━━━━━━━━━",
+        `Status: ${scrim.registration_open ? "✅ OPEN" : "❌ CLOSED"}`,
+        `Slots: **${scrim.min_slot}-${scrim.max_slot}**`,
+        `Filled: **${teamsCount}/${totalSlots}**`,
+        "",
+        scrim.open_at ? `⏱ Open: **${scrim.open_at}**` : null,
+        scrim.close_at ? `⏱ Close: **${scrim.close_at}**` : null,
+        "",
+        "**How it works**",
+        "• Click **Register Team**",
+        "• You get a private link",
+        "• One team per Discord account",
+        "━━━━━━━━━━━━━━━━━━━━",
+      ].filter(Boolean).join("\n")
+    )
+    .setFooter({ text: `DarkSide Scrims • Scrim ID ${scrim.id}` })
+    .setThumbnail(guild.iconURL({ size: 256 }));
+}
+
+function buildRegComponents(scrim) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`reglink:${scrim.id}`)
+        .setLabel("Register Team")
+        .setEmoji("📝")
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(!scrim.registration_open)
+    ),
+  ];
+}
 
 // ---------------------- EXPRESS ---------------------- //
 const app = express();
@@ -1673,6 +1714,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
