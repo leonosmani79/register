@@ -237,6 +237,13 @@ CREATE TABLE IF NOT EXISTS results (
 const q = {
   scrimById: db.prepare("SELECT * FROM scrims WHERE id = ?"),
   scrimsByGuild: db.prepare("SELECT * FROM scrims WHERE guild_id = ? ORDER BY id DESC"),
+q.updateSlotsSettings = db.prepare(`
+  UPDATE scrims SET
+    slot_template = ?,
+    slots_channel_id = ?,
+    slots_spam = ?
+  WHERE id = ? AND guild_id = ?
+`);
 
   createScrim: db.prepare(`
     INSERT INTO scrims (
@@ -1843,6 +1850,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
