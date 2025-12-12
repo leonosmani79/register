@@ -740,6 +740,69 @@ th{color:var(--muted)}
 .muted{color:var(--muted)}
 .h{font-family:Orbitron;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
 .warn{margin-top:12px;padding:10px;border-radius:12px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.55);color:#fecaca;font-size:13px}
+/* ===== DASHBOARD ICON CARDS ===== */
+.grid4{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:12px;
+}
+@media (max-width:900px){
+  .grid4{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:520px){
+  .grid4{grid-template-columns:1fr}
+}
+
+.tile{
+  background:rgba(15,23,42,.65);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:18px;
+  padding:14px;
+  display:flex;
+  gap:12px;
+  align-items:center;
+  transition:transform .12s ease,border-color .12s ease;
+}
+.tile:hover{
+  transform:translateY(-2px);
+  border-color:rgba(255,179,0,.45);
+}
+
+.ico{
+  width:44px;
+  height:44px;
+  border-radius:14px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(255,179,0,.12);
+  border:1px solid rgba(255,179,0,.25);
+  font-size:20px;
+}
+
+.t1{
+  font-family:Orbitron;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  margin:0;
+  font-size:14px;
+}
+.t2{
+  margin:2px 0 0;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.4;
+}
+
+.smallrow{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.smallrow>*{
+  flex:1;
+  min-width:200px;
+}
 </style></head>
 <body><div class="wrap">
 <div class="top">
@@ -1654,6 +1717,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
