@@ -1247,43 +1247,48 @@ app.post("/scrims/:id/postRegMessage", requireLogin, async (req, res) => {
 
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
-  if (!scrim.registration_channel_id) return res.redirect(`/scrims/${scrimId}`);
+  if (!scrim.registration_channel_id) return res.redirect(`/scrims/${scrimId}/messages?err=noregchan`);
 
   try {
     const guild = await discord.guilds.fetch(scrim.guild_id);
     const chan = await guild.channels.fetch(scrim.registration_channel_id).catch(() => null);
-    if (chan && chan.type === ChannelType.GuildText) {
-      const teams = q.teamsByScrim.all(scrim.id);
-      const embed = buildRegEmbed(scrim, guild, teams.length);
-      const components = buildRegComponents(scrim);
-      await chan.send({ embeds: [embed], components });
-    }
+    const teams = q.teamsByScrim.all(scrim.id);
+
+    const embed = buildRegEmbed(scrim, guild, teams.length);
+    const components = buildRegComponents(scrim);
+
+    const result = await safeSend(chan, { embeds: [embed], components });
+    if (!result.ok) return res.redirect(`/scrims/${scrimId}/messages?err=${encodeURIComponent(result.error)}`);
   } catch (e) {
     console.error("postRegMessage error:", e);
+    return res.redirect(`/scrims/${scrimId}/messages?err=exception`);
   }
 
-  res.redirect(`/scrims/${scrimId}`);
+  res.redirect(`/scrims/${scrimId}/messages?ok=reg`);
 });
 
 app.post("/scrims/:id/postList", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  await ensureListMessage(scrim).catch(() => {});
-  res.redirect(`/scrims/${scrimId}`);
+  await ensureListMessage(scrim).catch((e) => console.error("ensureListMessage:", e));
+  res.redirect(`/scrims/${scrimId}/messages?ok=list`);
 });
 
 app.post("/scrims/:id/postConfirmMessage", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  await ensureConfirmMessage(scrim).catch(() => {});
-  res.redirect(`/scrims/${scrimId}`);
+  await ensureConfirmMessage(scrim).catch((e) => console.error("ensureConfirmMessage:", e));
+  res.redirect(`/scrims/${scrimId}/messages?ok=confirm`);
 });
+
 
 app.post("/scrims/:id/postSlots", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -1522,4 +1527,5 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
