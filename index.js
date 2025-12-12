@@ -832,14 +832,49 @@ app.get("/auth/discord/callback", async (req, res) => {
 
 // HOME
 app.get("/", (req, res) => {
-  res.send(
-    renderLanding({
-      title: "DarkSideORG — Login",
-      user: req.session.user || null,
-      error: req.query.err ? "Login failed. Please try again." : "",
-    })
-  );
+  const user = req.session.user || null;
+
+  if (user) {
+    // already authed = show same layout and buttons
+    return res.send(renderLayout({
+      title: "DarkSideORG — Panel",
+      user,
+      selectedGuild: req.session.selectedGuildId ? { id: req.session.selectedGuildId, name: req.session.selectedGuildName || "Selected" } : null,
+      active: "servers",
+      body: `
+        <h2 class="h">DarkSide Scrims Panel</h2>
+        <p class="muted">You are logged in. Continue to servers/panel.</p>
+        <div class="smallrow">
+          <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/servers">Servers</a>
+          <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/panel">Panel</a>
+          <form method="POST" action="/logout" style="margin:0">
+            <button class="btn2" type="submit">Logout</button>
+          </form>
+        </div>
+      `
+    }));
+  }
+
+  // not logged in
+  const err = req.query.err ? `<div class="warn">Login failed. Try again.</div>` : "";
+  return res.send(renderLayout({
+    title: "DarkSideORG — Login",
+    user: null,
+    selectedGuild: null,
+    active: "servers",
+    body: `
+      <h2 class="h">Operator Access</h2>
+      <p class="muted">Discord OAuth2 login. No passwords stored.</p>
+      ${err}
+      <div style="margin-top:12px">
+        <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/auth/discord">
+          Login with Discord
+        </a>
+      </div>
+    `
+  }));
 });
+
 
 app.get("/panel", requireLogin, (req, res) => {
   if (!req.session.selectedGuildId) return res.redirect("/servers");
@@ -1619,6 +1654,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
