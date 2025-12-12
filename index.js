@@ -459,7 +459,7 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: true,
+      secure: "auto",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
@@ -1215,3 +1215,4 @@ app.post("/register/:scrimId", upload.single("teamLogo"), async (req, res) => {
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE_URL} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
