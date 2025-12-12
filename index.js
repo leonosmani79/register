@@ -337,18 +337,32 @@ discord.once(Events.ClientReady, () => {
 
 // ---------- EMBEDS HELPERS ----------
 async function ensureListMessage(scrim) {
-  if (!scrim.list_channel_id) return;
-  const guild = await discord.guilds.fetch(scrim.guild_id);
+  if (!scrim.list_channel_id) {
+    console.log("ensureListMessage: list_channel_id is empty for scrim", scrim.id);
+    return;
+  }
+
+  const guild = await discord.guilds.fetch(scrim.guild_id).catch(() => null);
+  if (!guild) return console.log("ensureListMessage: guild not found", scrim.guild_id);
+
   const channel = await guild.channels.fetch(scrim.list_channel_id).catch(() => null);
-  if (!channel || channel.type !== ChannelType.GuildText) return;
+  if (!channel) return console.log("ensureListMessage: channel not found", scrim.list_channel_id);
+
+  // ✅ allow ANY text-based channel
+  if (!channel.isTextBased()) {
+    console.log("ensureListMessage: channel is not text based", channel.type);
+    return;
+  }
 
   if (!scrim.list_message_id) {
     const msg = await channel.send({ content: "Creating teams list..." });
     q.setListMessage.run(scrim.list_channel_id, msg.id, scrim.id);
     scrim = q.scrimById.get(scrim.id);
   }
+
   await updateTeamsListEmbed(scrim);
 }
+
 
 async function ensureConfirmMessage(scrim) {
   if (!scrim.confirm_channel_id) return;
@@ -1717,6 +1731,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
