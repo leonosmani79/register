@@ -1333,6 +1333,53 @@ app.post("/scrims/:id/postConfirmMessage", requireLogin, async (req, res) => {
   await ensureConfirmMessage(scrim).catch((e) => console.error("ensureConfirmMessage:", e));
   res.redirect(`/scrims/${scrimId}/messages?ok=confirm`);
 });
+app.get("/scrims/:id/slots", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  if (!guildId) return res.redirect("/servers");
+
+  const scrimId = Number(req.params.id);
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  const templates = listTemplates();
+  const options = templates.map(t => `<option value="${esc(t)}" ${scrim.slot_template===t?"selected":""}>${esc(t)}</option>`).join("");
+
+  res.send(renderLayout({
+    title: "Slots",
+    user: req.session.user,
+    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+    active: "scrims",
+    body: `
+      <h2 class="h">Slots — ${esc(scrim.name)}</h2>
+      <p class="muted">Choose a GIF template and where to post the slot GIFs.</p>
+
+      <form method="POST" action="/scrims/${scrimId}/slotsSettings">
+        <label>Slots Channel ID</label>
+        <input name="slotsChannelId" value="${esc(scrim.slots_channel_id || "")}" placeholder="channel id" />
+
+        <label>Template</label>
+        <select name="slotTemplate" style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
+          <option value="">-- choose --</option>
+          ${options}
+        </select>
+
+        <label>Spam Mode</label>
+        <select name="slotsSpam" style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
+          <option value="0" ${scrim.slots_spam ? "" : "selected"}>OFF (one message)</option>
+          <option value="1" ${scrim.slots_spam ? "selected" : ""}>ON (post every slot)</option>
+        </select>
+
+        <button type="submit" style="margin-top:12px">Save Slot Settings</button>
+      </form>
+
+      <hr class="hr"/>
+
+      <form method="POST" action="/scrims/${scrimId}/postSlots" style="margin:0">
+        <button type="submit">🎞️ Post Slots Now</button>
+      </form>
+    `
+  }));
+});
 
 
 app.post("/scrims/:id/postSlots", requireLogin, async (req, res) => {
@@ -1572,6 +1619,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
