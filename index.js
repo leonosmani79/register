@@ -1019,6 +1019,58 @@ app.get("/scrims/new", requireLogin, (req, res) => {
     })
   );
 });
+app.get("/scrims/:id/settings", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  if (!guildId) return res.redirect("/servers");
+
+  const scrimId = Number(req.params.id);
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  res.send(renderLayout({
+    title: "Scrim Settings",
+    user: req.session.user,
+    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+    active: "scrims",
+    body: `
+      <h2 class="h">Settings — ${esc(scrim.name)}</h2>
+      <form method="POST" action="/scrims/${scrimId}/edit">
+
+        <label>Name</label>
+        <input name="name" value="${esc(scrim.name)}" />
+
+        <div class="row">
+          <div><label>Min Slot</label><input name="minSlot" type="number" value="${scrim.min_slot}"/></div>
+          <div><label>Max Slot</label><input name="maxSlot" type="number" value="${scrim.max_slot}"/></div>
+        </div>
+
+        <label>Registration Channel ID</label>
+        <input name="registrationChannelId" value="${esc(scrim.registration_channel_id || "")}" />
+
+        <label>List Channel ID</label>
+        <input name="listChannelId" value="${esc(scrim.list_channel_id || "")}" />
+
+        <label>Confirm Channel ID</label>
+        <input name="confirmChannelId" value="${esc(scrim.confirm_channel_id || "")}" />
+
+        <label>Team Role ID</label>
+        <input name="teamRoleId" value="${esc(scrim.team_role_id || "")}" />
+
+        <div class="row">
+          <div><label>Reg Open</label><input name="openAt" value="${esc(scrim.open_at || "")}"/></div>
+          <div><label>Reg Close</label><input name="closeAt" value="${esc(scrim.close_at || "")}"/></div>
+        </div>
+
+        <div class="row">
+          <div><label>Confirm Open</label><input name="confirmOpenAt" value="${esc(scrim.confirm_open_at || "")}"/></div>
+          <div><label>Confirm Close</label><input name="confirmCloseAt" value="${esc(scrim.confirm_close_at || "")}"/></div>
+        </div>
+
+        <button type="submit">Save Settings</button>
+      </form>
+    `
+  }));
+});
 
 app.post("/scrims/new", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -1483,6 +1535,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
