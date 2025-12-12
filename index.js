@@ -64,6 +64,30 @@ try {
   staffConfig = { staffChannelId: null, approverRoleId: null };
 }
 
+// panel_config.json (for customize page)
+let panelConfig;
+try {
+  panelConfig = require("./panel_config.json");
+} catch (e) {
+  panelConfig = {
+    scrimName: "DarkSide Scrims",
+    registrationChannelId: null,
+    teamRoleId: null, // optional override for team role
+    openTime: "",
+    closeTime: "",
+  };
+}
+function savePanelConfig() {
+  try {
+    fs.writeFileSync(
+      path.join(__dirname, "panel_config.json"),
+      JSON.stringify(panelConfig, null, 2)
+    );
+  } catch (e) {
+    console.error("Error saving panel_config.json:", e.message || e);
+  }
+}
+
 // ---------------------- GLOBAL REGISTRATION STATE ---------------------- //
 
 const MIN_SLOT = 2;
@@ -153,12 +177,10 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: false, // keep it simple; works over HTTP and HTTPS
-      // If later you want stricter security, we can switch this to true.
+      secure: false, // keep simple; works fine behind nginx HTTPS
     },
   })
 );
-
 
 // 🔥 Styled HTML helper
 function renderPage({ title, body }) {
@@ -210,13 +232,13 @@ function renderPage({ title, body }) {
           z-index: -1;
         }
 
-        .wrapper { width: 100%; max-width: 520px; }
+        .wrapper { width: 100%; max-width: 900px; }
 
         .card {
           position: relative;
           background: var(--card-bg);
           border-radius: 18px;
-          padding: 28px 26px 24px;
+          padding: 16px 22px 20px;
           border: 1px solid var(--border);
           box-shadow:
             0 25px 40px rgba(0, 0, 0, 0.7),
@@ -251,7 +273,7 @@ function renderPage({ title, body }) {
           background: rgba(15, 23, 42, 0.85);
           border: 1px solid rgba(148, 163, 184, 0.45);
           color: var(--text-sub);
-          margin-bottom: 12px;
+          margin-bottom: 10px;
         }
 
         .badge-dot {
@@ -332,7 +354,8 @@ function renderPage({ title, body }) {
         }
 
         input[type="text"],
-        input[type="file"] {
+        input[type="file"],
+        input[type="number"] {
           width: 100%;
           padding: 10px 11px;
           border-radius: 10px;
@@ -345,7 +368,8 @@ function renderPage({ title, body }) {
         }
 
         input[type="text"]:focus,
-        input[type="file"]:focus {
+        input[type="file"]:focus,
+        input[type="number"]:focus {
           border-color: var(--accent);
           background: rgba(15, 23, 42, 1);
           box-shadow: 0 0 0 1px rgba(255, 179, 0, 0.45), 0 0 18px rgba(255, 179, 0, 0.3);
@@ -363,7 +387,8 @@ function renderPage({ title, body }) {
 
         .fields-row .field { flex: 1; }
 
-        button[type="submit"] {
+        button[type="submit"],
+        .btn {
           margin-top: 8px;
           width: 100%;
           padding: 11px 14px;
@@ -371,7 +396,7 @@ function renderPage({ title, body }) {
           border: none;
           cursor: pointer;
           font-family: "Orbitron", system-ui;
-          font-size: 14px;
+          font-size: 13px;
           letter-spacing: 0.15em;
           text-transform: uppercase;
           background: radial-gradient(circle at 0 0, #fde68a 0, #f97316 40%, #ea580c 60%, #7c2d12 100%);
@@ -380,9 +405,11 @@ function renderPage({ title, body }) {
             0 12px 24px rgba(0, 0, 0, 0.75),
             0 0 24px rgba(249, 115, 22, 0.75);
           transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+          text-align: center;
         }
 
-        button[type="submit"]:hover {
+        button[type="submit"]:hover,
+        .btn:hover {
           transform: translateY(-1px);
           filter: brightness(1.05);
           box-shadow:
@@ -390,7 +417,8 @@ function renderPage({ title, body }) {
             0 0 32px rgba(249, 115, 22, 0.9);
         }
 
-        button[type="submit"]:active {
+        button[type="submit"]:active,
+        .btn:active {
           transform: translateY(0);
           filter: brightness(0.96);
           box-shadow:
@@ -460,12 +488,84 @@ function renderPage({ title, body }) {
 
         a {
           color: var(--accent);
+          text-decoration: none;
         }
 
-        @media (max-width: 520px) {
-          .card { padding: 22px 18px 18px; }
+        a:hover { text-decoration: underline; }
+
+        /* Navbar */
+        .navbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .nav-left {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .nav-title {
+          font-family: "Orbitron", system-ui;
+          font-size: 16px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--text-main);
+        }
+
+        .nav-sub {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.14em;
+          color: var(--text-sub);
+        }
+
+        .nav-links {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 12px;
+        }
+
+        .nav-link {
+          padding: 6px 12px;
+          border-radius: 999px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: var(--text-sub);
+        }
+
+        .nav-link.active {
+          border-color: rgba(148, 163, 184, 0.8);
+          background: rgba(15, 23, 42, 0.9);
+          color: var(--accent);
+        }
+
+        .nav-user {
+          font-size: 11px;
+          color: var(--text-sub);
+        }
+
+        .nav-user code {
+          border-color: rgba(148, 163, 184, 0.4);
+        }
+
+        @media (max-width: 720px) {
+          .card { padding: 14px 14px 16px; }
           h1 { font-size: 22px; }
           .fields-row { flex-direction: column; }
+          .navbar {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .nav-links {
+            width: 100%;
+            justify-content: flex-start;
+            flex-wrap: wrap;
+          }
         }
       </style>
     </head>
@@ -479,6 +579,30 @@ function renderPage({ title, body }) {
     </body>
   </html>
   `;
+}
+
+// helper: render authed layout with navbar
+function renderAuthedPage({ title, user, active, content }) {
+  const nav = `
+    <div class="navbar">
+      <div class="nav-left">
+        <div>
+          <div class="nav-title">DARKSIDE PANEL</div>
+          <div class="nav-sub">${panelConfig.scrimName || "SCRIMS CONTROL"}</div>
+        </div>
+      </div>
+      <div class="nav-links">
+        <a href="/panel" class="nav-link ${active === "panel" ? "active" : ""}">Dashboard</a>
+        <a href="/customize" class="nav-link ${active === "customize" ? "active" : ""}">Customize</a>
+        <a href="/results" class="nav-link ${active === "results" ? "active" : ""}">Results</a>
+      </div>
+      <div class="nav-user">
+        Logged in as <code>${user.username}</code>
+        <a href="/auth/logout" style="margin-left:6px;">(logout)</a>
+      </div>
+    </div>
+  `;
+  return renderPage({ title, body: nav + content });
 }
 
 // uploads dir
@@ -507,11 +631,10 @@ const adminIds = (PANEL_ADMIN_IDS || "")
   .filter(Boolean);
 
 function isPanelAdmin(discordUserId) {
-  // TEMP: allow everyone who logs in via Discord
-  // Once it works, we can put the strict check back.
-  return true;
+  if (!discordUserId) return false;
+  if (adminIds.length === 0) return true; // if no admin list, allow any logged-in user
+  return adminIds.includes(discordUserId);
 }
-
 
 function requirePanelAuth(req, res, next) {
   if (!req.session || !req.session.discordUser) {
@@ -531,7 +654,7 @@ function requirePanelAuth(req, res, next) {
           <div class="center-text">
             <p>Only authorized staff accounts can access this panel.</p>
             <form action="/auth/discord" method="GET" style="margin-top: 18px;">
-              <button type="submit">
+              <button type="submit" class="btn">
                 Login with Discord
               </button>
             </form>
@@ -710,118 +833,330 @@ app.get("/auth/logout", (req, res) => {
 
 // ---------------------- PANEL UI + ACTIONS ---------------------- //
 
+// Dashboard
 app.get("/panel", requirePanelAuth, (req, res) => {
   const user = req.session.discordUser;
   const rows = registeredTeams
     .filter((t) => t.status !== "removed")
     .sort((a, b) => a.slot - b.slot)
-    .map(
-      (t) => `
+    .map((t) => {
+      const r = t.results || {};
+      return `
       <tr>
         <td>#${t.slot}</td>
         <td>${t.teamName} [${t.teamTag}]</td>
         <td><code>${t.userId}</code></td>
         <td>${t.status}</td>
-        <td>
-          <form action="/panel/team/${t.slot}/accept" method="POST" style="display:inline;">
-            <button type="submit" style="font-size:11px;padding:4px 8px;border-radius:999px;border:none;cursor:pointer;background:#22c55e;color:#020617;">Accept</button>
-          </form>
-          <form action="/panel/team/${t.slot}/remove" method="POST" style="display:inline;margin-left:4px;">
-            <button type="submit" style="font-size:11px;padding:4px 8px;border-radius:999px;border:none;cursor:pointer;background:#ef4444;color:#f9fafb;">Remove</button>
-          </form>
-        </td>
+        <td>${r.game1 || "-"} / ${r.game2 || "-"} / ${r.game3 || "-"} / ${r.game4 || "-"}</td>
       </tr>
-    `
-    )
+    `;
+    })
     .join("");
 
+  const content = `
+    <div class="badge">
+      <span class="badge-dot"></span>
+      DARKSIDE SCRIM CONTROL
+    </div>
+
+    <h1>
+      Staff Panel
+      <span style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-sub);">
+        DASHBOARD
+      </span>
+    </h1>
+
+    <p class="tagline">
+      Overview of registered teams and their current status.
+    </p>
+
+    <hr class="divider" />
+
+    <div style="max-height:380px;overflow:auto;border-radius:12px;border:1px solid rgba(148,163,184,0.4);background:rgba(15,23,42,0.85);">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:rgba(15,23,42,0.95);">
+            <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Slot</th>
+            <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Team</th>
+            <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">User</th>
+            <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Status</th>
+            <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Results G1–G4</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows ||
+            `<tr><td colspan="5" style="padding:10px 12px;color:var(--text-sub);font-size:12px;">No teams registered yet.</td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note">
+      Use <span>Customize</span> to configure scrim settings and <span>Results</span> to enter placements for each game.
+    </p>
+  `;
+
   return res.send(
-    renderPage({
+    renderAuthedPage({
       title: "DarkSide Panel",
-      body: `
-        <div class="badge">
-          <span class="badge-dot"></span>
-          DARKSIDE SCRIM CONTROL
-        </div>
-
-        <h1>
-          Staff Panel
-          <span style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-sub);">
-            LIVE LOBBY
-          </span>
-        </h1>
-
-        <p class="tagline">
-          Manage current team registrations for your scrim lobby.
-        </p>
-
-        <div class="status-pill" style="margin-bottom:10px;">
-          <span class="status-dot green"></span>
-          Logged in as <code>${user.username}</code>
-          <a href="/auth/logout" style="margin-left:8px;font-size:11px;color:var(--text-sub);text-decoration:none;">(logout)</a>
-        </div>
-
-        <hr class="divider" />
-
-        <div style="max-height:340px;overflow:auto;border-radius:12px;border:1px solid rgba(148,163,184,0.4);background:rgba(15,23,42,0.85);">
-          <table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead>
-              <tr style="background:rgba(15,23,42,0.95);">
-                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Slot</th>
-                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Team</th>
-                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">User</th>
-                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Status</th>
-                <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows || `<tr><td colspan="5" style="padding:10px 12px;color:var(--text-sub);font-size:12px;">No teams registered yet.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-
-        <p class="note">
-          Changes here affect <span>this bot instance</span> only. Slot state is
-          kept in memory and Google Sheets for logging.
-        </p>
-      `,
+      user,
+      active: "panel",
+      content,
     })
   );
 });
 
-app.post("/panel/team/:slot/accept", requirePanelAuth, async (req, res) => {
-  const slot = parseInt(req.params.slot, 10);
-  const team = registeredTeams.find((t) => t.slot === slot && t.status !== "removed");
-  if (!team) {
-    return res.redirect("/panel");
-  }
+// Customize scrims
+app.get("/customize", requirePanelAuth, (req, res) => {
+  const user = req.session.discordUser;
 
-  team.status = "accepted";
+  const content = `
+    <div class="badge">
+      <span class="badge-dot"></span>
+      SCRIM SETTINGS
+    </div>
 
-  if (staffConfig.approverRoleId && client.guilds.cache.has(GUILD_ID)) {
+    <h1>
+      Customize
+      <span style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-sub);">
+        LOBBY CONFIG
+      </span>
+    </h1>
+
+    <p class="tagline">
+      Set how your scrims behave: names, times, and default roles.
+    </p>
+
+    <hr class="divider" />
+
+    <form action="/customize" method="POST">
+      <div class="field">
+        <label>
+          SCRIM NAME
+          <span class="label-hint">Displayed in the panel header</span>
+        </label>
+        <input
+          type="text"
+          name="scrimName"
+          placeholder="DarkSide Scrims"
+          value="${panelConfig.scrimName || ""}"
+          required
+        />
+      </div>
+
+      <div class="fields-row">
+        <div class="field">
+          <label>
+            REGISTRATION CHANNEL ID
+            <span class="label-hint">Discord text channel for /startregister</span>
+          </label>
+          <input
+            type="text"
+            name="registrationChannelId"
+            placeholder="e.g. 1442579899910062100"
+            value="${panelConfig.registrationChannelId || ""}"
+          />
+        </div>
+        <div class="field">
+          <label>
+            TEAM ROLE ID
+            <span class="label-hint">Role given when a team is approved</span>
+          </label>
+          <input
+            type="text"
+            name="teamRoleId"
+            placeholder="Use slash cmd setapproverole or set here"
+            value="${panelConfig.teamRoleId || ""}"
+          />
+        </div>
+      </div>
+
+      <div class="fields-row">
+        <div class="field">
+          <label>
+            SCRIMS OPEN TIME
+            <span class="label-hint">Optional note, e.g. &quot;18:00 CET&quot;</span>
+          </label>
+          <input
+            type="text"
+            name="openTime"
+            placeholder="18:00 CET"
+            value="${panelConfig.openTime || ""}"
+          />
+        </div>
+        <div class="field">
+          <label>
+            SCRIMS CLOSE TIME
+            <span class="label-hint">Optional note, e.g. &quot;18:15 CET&quot;</span>
+          </label>
+          <input
+            type="text"
+            name="closeTime"
+            placeholder="18:15 CET"
+            value="${panelConfig.closeTime || ""}"
+          />
+        </div>
+      </div>
+
+      <button type="submit">
+        Save Settings
+      </button>
+
+      <p class="note">
+        Registration timing is currently informational only. You still open/close lobbies via Discord commands and staff actions,
+        but this helps keep <span>staff on the same page</span>.
+      </p>
+    </form>
+  `;
+
+  return res.send(
+    renderAuthedPage({
+      title: "Customize Scrims",
+      user,
+      active: "customize",
+      content,
+    })
+  );
+});
+
+app.post("/customize", requirePanelAuth, (req, res) => {
+  const { scrimName, registrationChannelId, teamRoleId, openTime, closeTime } = req.body;
+
+  panelConfig.scrimName = scrimName || panelConfig.scrimName;
+  panelConfig.registrationChannelId = registrationChannelId || "";
+  panelConfig.teamRoleId = teamRoleId || "";
+  panelConfig.openTime = openTime || "";
+  panelConfig.closeTime = closeTime || "";
+
+  // if a team role is set here, also sync with staffConfig for approvals
+  if (teamRoleId) {
+    staffConfig.approverRoleId = teamRoleId;
     try {
-      const guild = await client.guilds.fetch(GUILD_ID);
-      const member = await guild.members.fetch(team.userId);
-      await member.roles.add(staffConfig.approverRoleId);
-    } catch (err) {
-      console.error("Panel: error giving role:", err.message || err);
+      fs.writeFileSync(
+        path.join(__dirname, "staff_config.json"),
+        JSON.stringify(staffConfig, null, 2)
+      );
+    } catch (e) {
+      console.error("Error saving staff_config.json:", e.message || e);
     }
   }
 
-  return res.redirect("/panel");
+  savePanelConfig();
+
+  return res.redirect("/customize");
 });
 
-app.post("/panel/team/:slot/remove", requirePanelAuth, (req, res) => {
-  const slot = parseInt(req.params.slot, 10);
-  const team = registeredTeams.find((t) => t.slot === slot && t.status !== "removed");
-  if (!team) {
-    return res.redirect("/panel");
-  }
+// Results page: view + update placements
+app.get("/results", requirePanelAuth, (req, res) => {
+  const user = req.session.discordUser;
 
-  team.status = "removed";
-  freeSlot(team.slot);
+  const rows = registeredTeams
+    .filter((t) => t.status !== "removed")
+    .sort((a, b) => a.slot - b.slot)
+    .map((t) => {
+      const r = t.results || {};
+      return `
+        <tr>
+          <td>#${t.slot}</td>
+          <td>${t.teamName} [${t.teamTag}]</td>
+          <td><input type="number" name="g1_${t.slot}" value="${r.game1 || ""}" min="0" style="width:60px;"></td>
+          <td><input type="number" name="g2_${t.slot}" value="${r.game2 || ""}" min="0" style="width:60px;"></td>
+          <td><input type="number" name="g3_${t.slot}" value="${r.game3 || ""}" min="0" style="width:60px;"></td>
+          <td><input type="number" name="g4_${t.slot}" value="${r.game4 || ""}" min="0" style="width:60px;"></td>
+        </tr>
+      `;
+    })
+    .join("");
 
-  return res.redirect("/panel");
+  const content = `
+    <div class="badge">
+      <span class="badge-dot"></span>
+      MATCH RESULTS
+    </div>
+
+    <h1>
+      Results
+      <span style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-sub);">
+        G1 / G2 / G3 / G4
+      </span>
+    </h1>
+
+    <p class="tagline">
+      Enter placements or points for each game to track team performance.
+    </p>
+
+    <hr class="divider" />
+
+    <form action="/results" method="POST">
+      <div style="max-height:360px;overflow:auto;border-radius:12px;border:1px solid rgba(148,163,184,0.4);background:rgba(15,23,42,0.85);">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:rgba(15,23,42,0.95);">
+              <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Slot</th>
+              <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Team</th>
+              <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Game 1</th>
+              <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Game 2</th>
+              <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Game 3</th>
+              <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(55,65,81,0.8);">Game 4</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              rows ||
+              `<tr><td colspan="6" style="padding:10px 12px;color:var(--text-sub);font-size:12px;">No teams registered to score yet.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <button type="submit">
+        Save Results
+      </button>
+
+      <p class="note">
+        You can use these fields as <span>placements</span> (1, 2, 3...) or <span>points</span>.
+        To reset a value, set it to 0 or leave it blank.
+      </p>
+    </form>
+  `;
+
+  return res.send(
+    renderAuthedPage({
+      title: "Match Results",
+      user,
+      active: "results",
+      content,
+    })
+  );
+});
+
+app.post("/results", requirePanelAuth, (req, res) => {
+  // For each team, read g1_slot, g2_slot, g3_slot, g4_slot
+  registeredTeams.forEach((team) => {
+    if (team.status === "removed") return;
+    const key = team.slot;
+    const g1 = req.body[`g1_${key}`];
+    const g2 = req.body[`g2_${key}`];
+    const g3 = req.body[`g3_${key}`];
+    const g4 = req.body[`g4_${key}`];
+
+    const results = {
+      game1: g1 ? Number(g1) : "",
+      game2: g2 ? Number(g2) : "",
+      game3: g3 ? Number(g3) : "",
+      game4: g4 ? Number(g4) : "",
+    };
+
+    // if all blank, clear results
+    if (!results.game1 && !results.game2 && !results.game3 && !results.game4) {
+      team.results = undefined;
+    } else {
+      team.results = results;
+    }
+  });
+
+  return res.redirect("/results");
 });
 
 // ---------------------- REGISTER ROUTES (PUBLIC) ---------------------- //
@@ -916,7 +1251,7 @@ app.get("/register", (req, res) => {
         </div>
 
         <h1>
-          DarkSide Lobby
+          ${panelConfig.scrimName || "DarkSide Lobby"}
           <span style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-sub);">
             SIGN-UP
           </span>
@@ -1241,14 +1576,19 @@ const client = new Client({
 
 // embed & button for /startregister
 function buildRegistrationMessage() {
+  const title = panelConfig.scrimName || "Team Registration";
+
   const embed = new EmbedBuilder()
-    .setTitle("Team Registration")
+    .setTitle(title)
     .setDescription(
       [
         "Click **Register Team** to get your personal registration link.",
         "",
         "Each Discord account can register **one** team.",
         `Available slots: **${MIN_SLOT}–${MAX_SLOT}**`,
+        panelConfig.openTime || panelConfig.closeTime
+          ? `\n🕒 Open: **${panelConfig.openTime || "N/A"}**, Close: **${panelConfig.closeTime || "N/A"}**`
+          : "",
       ].join("\n")
     )
     .setColor(0x5865f2);
@@ -1403,11 +1743,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (action === "approve") {
           team.status = "accepted";
 
-          // give role if configured
-          if (staffConfig.approverRoleId && interaction.guild) {
+          // give role if configured (panel or slash cmd)
+          const roleId = panelConfig.teamRoleId || staffConfig.approverRoleId;
+          if (roleId && interaction.guild) {
             try {
               const member = await interaction.guild.members.fetch(userId);
-              await member.roles.add(staffConfig.approverRoleId);
+              await member.roles.add(roleId);
             } catch (err) {
               console.error("Error giving role:", err.message || err);
             }
@@ -1485,4 +1826,3 @@ app.listen(PORT, () => {
 });
 
 client.login(DISCORD_TOKEN);
-
