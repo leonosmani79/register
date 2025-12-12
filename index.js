@@ -99,6 +99,77 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
+const templatesDir = path.join(__dirname, "templates");
+const generatedDir = path.join(__dirname, "generated");
+if (!fs.existsSync(generatedDir)) fs.mkdirSync(generatedDir, { recursive: true });
+
+function listTemplates() {
+  if (!fs.existsSync(templatesDir)) return [];
+  return fs
+    .readdirSync(templatesDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+}
+
+function loadTemplate(templateKey) {
+  const dir = path.join(templatesDir, templateKey);
+  const base = path.join(dir, "base.gif");
+  const cfgPath = path.join(dir, "template.json");
+  if (!fs.existsSync(base) || !fs.existsSync(cfgPath)) return null;
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+  return { dir, base, cfg };
+}
+
+function escDrawtext(s = "") {
+  // ffmpeg drawtext escaping
+  return String(s)
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, " ");
+}
+
+function ensureScrimGenDir(scrimId) {
+  const d = path.join(generatedDir, `scrim_${scrimId}`);
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+
+function renderSlotGif({ templateKey, scrimId, slot, teamName, teamTag }) {
+  return new Promise((resolve, reject) => {
+    const t = loadTemplate(templateKey);
+    if (!t) return reject(new Error("Template not found: " + templateKey));
+
+    const outDir = ensureScrimGenDir(scrimId);
+    const outPath = path.join(outDir, `slot_${slot}.gif`);
+
+    const cfg = t.cfg;
+    const fontFile = cfg.fontFile || "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+
+    const slotText = `#${slot}`;
+    const nameText = (teamName || "").slice(0, 22); // keep short
+    const tagText = (teamTag || "").slice(0, 6);
+
+    const slotF = cfg.slot || { x: 40, y: 42, size: 34, color: "white", stroke: "black", strokeW: 3 };
+    const nameF = cfg.name || { x: 200, y: 42, size: 28, color: "white", stroke: "black", strokeW: 3 };
+    const tagF  = cfg.tag  || { x: 700, y: 42, size: 28, color: "white", stroke: "black", strokeW: 3, alignRight: true };
+
+    // right align trick: use x=w-text_w-<padding>
+    const tagX = tagF.alignRight ? `(w-text_w-${Math.max(10, (cfg.width || 800) - tagF.x)})` : String(tagF.x);
+
+    const filters = [
+      `drawtext=fontfile='${fontFile}':text='${escDrawtext(slotText)}':x=${slotF.x}:y=${slotF.y}:fontsize=${slotF.size}:fontcolor=${slotF.color}:borderw=${slotF.strokeW}:bordercolor=${slotF.stroke}`,
+      `drawtext=fontfile='${fontFile}':text='${escDrawtext(nameText)}':x=${nameF.x}:y=${nameF.y}:fontsize=${nameF.size}:fontcolor=${nameF.color}:borderw=${nameF.strokeW}:bordercolor=${nameF.stroke}`,
+      `drawtext=fontfile='${fontFile}':text='${escDrawtext(tagText)}':x=${tagX}:y=${tagF.y}:fontsize=${tagF.size}:fontcolor=${tagF.color}:borderw=${tagF.strokeW}:bordercolor=${tagF.stroke}`,
+    ];
+
+    ffmpeg(t.base)
+      .outputOptions(["-vf", filters.join(","), "-gifflags", "+transdiff"])
+      .on("error", (err) => reject(err))
+      .on("end", () => resolve(outPath))
+      .save(outPath);
+  });
+}
 
 // ---------------------- SQLITE ---------------------- //
 const dbPath = path.join(__dirname, "scrims.db");
@@ -1772,6 +1843,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
