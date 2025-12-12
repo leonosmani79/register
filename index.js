@@ -490,6 +490,377 @@ function esc(s = "") {
     .replaceAll("'", "&#039;");
 }
 
+function renderLanding({ title = "DarkSide", user = null, error = "" }) {
+  const isAuthed = !!user;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>${esc(title)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#050509;
+      --card:rgba(18,20,31,.95);
+      --border:rgba(255,255,255,.08);
+      --text:#f5f5f7;
+      --muted:#9ca3af;
+      --accent:#ffb300;
+      --accent2:#38bdf8;
+      --danger:#ff4b4b;
+      --ok:#4caf50;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+      padding:24px;
+      color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;
+      background:
+        radial-gradient(circle at top,#20263a 0,transparent 55%),
+        radial-gradient(circle at bottom,#111827 0,#020617 65%);
+      overflow:hidden;
+    }
+
+    /* subtle animated aura */
+    body::before{
+      content:"";
+      position:fixed; inset:-40px;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(255,179,0,.14), transparent 60%),
+        radial-gradient(circle at 80% 70%, rgba(56,189,248,.10), transparent 60%);
+      animation: drift 20s ease-in-out infinite;
+      z-index:-2;
+      filter: blur(0px);
+    }
+    @keyframes drift {
+      0%,100% { transform: translate(0,0); }
+      50% { transform: translate(-14px, 10px); }
+    }
+
+    .wrap{width:100%; max-width:980px; display:grid; grid-template-columns: 1.2fr .8fr; gap:18px; align-items:stretch;}
+    @media (max-width: 880px){ .wrap{grid-template-columns:1fr} }
+
+    .card{
+      position:relative;
+      border-radius:18px;
+      background:var(--card);
+      border:1px solid var(--border);
+      box-shadow: 0 25px 40px rgba(0,0,0,.7);
+      overflow:hidden;
+    }
+    .card::before{
+      content:"";
+      position:absolute; inset:-1px;
+      border-radius:inherit;
+      background: linear-gradient(135deg, rgba(255,179,0,.30), rgba(56,189,248,.18));
+      opacity:.7;
+      -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+      -webkit-mask-composite:xor;
+      mask-composite: exclude;
+      padding:1px;
+      pointer-events:none;
+    }
+
+    .main{padding:22px 22px 18px}
+    .side{padding:22px; display:flex; flex-direction:column; justify-content:space-between}
+
+    .badge{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:6px 12px;
+      border-radius:999px;
+      background: rgba(15,23,42,.85);
+      border:1px solid rgba(148,163,184,.35);
+      color:var(--muted);
+      font-size:11px;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+    }
+    .badge-dot{
+      width:8px;height:8px;border-radius:50%;
+      background:var(--accent);
+      box-shadow:0 0 12px rgba(255,179,0,.8);
+    }
+
+    .title{
+      margin:14px 0 6px;
+      font-family:Orbitron,system-ui;
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      font-size:30px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .subtitle{margin:0; color:var(--muted); font-size:13px; line-height:1.5}
+
+    .hr{
+      margin:18px 0;
+      height:1px;
+      border:none;
+      background: linear-gradient(to right, transparent, rgba(148,163,184,.45), transparent);
+    }
+
+    /* logo block */
+    .logoBox{
+      position:relative;
+      width:100%;
+      display:flex;
+      align-items:center;
+      gap:14px;
+      margin-top:10px;
+    }
+    .logoWrap{
+      position:relative;
+      width:70px; height:70px;
+      border-radius:18px;
+      background: rgba(15,23,42,.85);
+      border:1px solid rgba(148,163,184,.30);
+      display:flex; align-items:center; justify-content:center;
+      overflow:hidden;
+    }
+    .logoGlow{
+      position:absolute; inset:-30px;
+      background: radial-gradient(circle, rgba(255,179,0,.30), transparent 60%);
+      filter: blur(20px);
+      animation:pulse 6s ease-in-out infinite;
+      opacity:.65;
+    }
+    @keyframes pulse{
+      0%,100%{transform:scale(1); opacity:.35}
+      50%{transform:scale(1.15); opacity:.75}
+    }
+    .logoText{
+      position:relative;
+      font-family:Orbitron;
+      letter-spacing:.14em;
+      font-size:20px;
+    }
+    .logoMini{
+      font-size:12px;
+      color:var(--muted);
+      letter-spacing:.08em;
+      margin-top:4px;
+    }
+
+    /* buttons */
+    .btn{
+      width:100%;
+      padding:12px 14px;
+      border-radius:999px;
+      border:none;
+      cursor:pointer;
+      font-family:Orbitron,system-ui;
+      letter-spacing:.15em;
+      text-transform:uppercase;
+      background: linear-gradient(135deg, #fde68a, #f97316, #ea580c);
+      color:#0b0b10;
+      box-shadow: 0 14px 30px rgba(0,0,0,.75), 0 0 26px rgba(249,115,22,.55);
+      transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      text-decoration:none;
+    }
+    .btn:hover{ transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 18px 36px rgba(0,0,0,.85), 0 0 32px rgba(249,115,22,.75); }
+    .btn:active{ transform: scale(.98); filter: brightness(.98); }
+
+    .btn2{
+      width:100%;
+      padding:12px 14px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.35);
+      background: rgba(15,23,42,.82);
+      color:var(--text);
+      cursor:pointer;
+      font-family:Orbitron,system-ui;
+      letter-spacing:.15em;
+      text-transform:uppercase;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      text-decoration:none;
+      transition: transform .12s ease, border-color .12s ease;
+    }
+    .btn2:hover{ transform: translateY(-1px); border-color: rgba(255,179,0,.55); }
+    .btn2:active{ transform: scale(.99); }
+
+    /* status line */
+    .status{
+      margin-top:14px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:12px;
+      color:var(--muted);
+      letter-spacing:.06em;
+      text-transform:uppercase;
+    }
+    .statusDot{
+      width:7px;height:7px;border-radius:50%;
+      background:var(--accent);
+      box-shadow:0 0 10px rgba(255,179,0,.9);
+    }
+
+    /* info list */
+    .list{
+      margin:0;
+      padding:0;
+      list-style:none;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .li{
+      padding:12px 12px;
+      border-radius:14px;
+      background: rgba(15,23,42,.65);
+      border:1px solid rgba(148,163,184,.18);
+      color:var(--muted);
+      font-size:13px;
+    }
+    .li b{color:var(--text)}
+    .li .ok{color:#bbf7d0}
+    .li .lock{color:#fde68a}
+
+    .error{
+      margin-top:12px;
+      padding:10px 12px;
+      border-radius:14px;
+      background: rgba(239,68,68,.12);
+      border:1px solid rgba(239,68,68,.45);
+      color:#fecaca;
+      font-size:13px;
+    }
+
+    code{
+      font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+      font-size:11px;
+      background: rgba(15,23,42,.85);
+      border: 1px solid rgba(148,163,184,.25);
+      padding:2px 6px;
+      border-radius:9px;
+      color: #cbd5e1;
+    }
+
+    .footer{
+      margin-top:14px;
+      font-size:11px;
+      color: rgba(156,163,175,.9);
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="main">
+        <div class="badge"><span class="badge-dot"></span> DARKSIDE CONTROL</div>
+
+        <div class="title">
+          DARKSIDE ORG
+          <span style="font-size:11px;font-weight:400;color:var(--muted);letter-spacing:.16em;">SCRIMS PANEL</span>
+        </div>
+
+        <p class="subtitle">
+          Manage multiple scrims, open/close registrations and confirms, auto-role teams, and track results — all from one panel.
+        </p>
+
+        <div class="logoBox">
+          <div class="logoWrap">
+            <div class="logoGlow"></div>
+            <div class="logoText">DS</div>
+          </div>
+          <div>
+            <div style="font-family:Orbitron;letter-spacing:.12em;text-transform:uppercase;">Operator Access</div>
+            <div class="logoMini">Discord OAuth2 • No passwords stored</div>
+          </div>
+        </div>
+
+        <hr class="hr"/>
+
+        ${
+          isAuthed
+            ? `
+              <div class="status"><span class="statusDot"></span> System ready — authenticated</div>
+
+              <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <a class="btn" href="/panel">GO TO PANEL</a>
+                <form method="POST" action="/logout" style="margin:0">
+                  <button class="btn2" type="submit">LOGOUT</button>
+                </form>
+              </div>
+
+              <div class="footer">
+                <div>Logged in as <b>${esc(user.username)}</b> <span style="opacity:.8">(ID: <code>${esc(user.id)}</code>)</span></div>
+                <div>Tip: Bookmark <code>/panel</code></div>
+              </div>
+            `
+            : `
+              <div class="status"><span class="statusDot"></span> System idle — awaiting login</div>
+
+              ${error ? `<div class="error">${esc(error)}</div>` : ""}
+
+              <div style="margin-top:14px;">
+                <a class="btn" href="/auth/discord" id="loginBtn">ENTER DARKSIDE</a>
+              </div>
+
+              <div class="footer">
+                <div>✔ Discord OAuth2</div>
+                <div>✔ Staff-only access</div>
+                <div>✔ Secure session</div>
+              </div>
+            `
+        }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="side">
+        <div>
+          <div class="badge"><span class="badge-dot"></span> FEATURES</div>
+          <hr class="hr"/>
+          <ul class="list">
+            <li class="li"><b>Multi Scrims</b><br/><span class="muted">Create and manage multiple lobbies at once.</span></li>
+            <li class="li"><b class="lock">Registrations + Confirms</b><br/><span class="muted">Open/close times + only registered teams can confirm/drop.</span></li>
+            <li class="li"><b class="ok">Auto Approve + Role</b><br/><span class="muted">Instant role + list embed updates automatically.</span></li>
+            <li class="li"><b>Results (G1–G4)</b><br/><span class="muted">Track placements/points per game.</span></li>
+          </ul>
+        </div>
+
+        <div style="margin-top:14px" class="muted">
+          Support: <code>${esc(process.env.BASE_URL || "")}</code><br/>
+          Panel: <code>/panel</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Optional: prevent double click spam
+    const btn = document.getElementById("loginBtn");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        btn.style.pointerEvents = "none";
+        btn.textContent = "REDIRECTING...";
+      });
+    }
+  </script>
+</body>
+</html>`;
+}
+
+
 function renderLayout({ title, user, selectedGuild, active, body }) {
   const nav = user
     ? `
@@ -1291,6 +1662,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
