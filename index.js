@@ -633,7 +633,7 @@ app.get("/auth/discord/callback", async (req, res) => {
 });
 
 app.get("/logout", (req, res) => {
-  req.session.destroy(() => res.redirect("/auth/discord"));
+  req.session.destroy(() => res.redirect("/"));
 });
 
 // ---------------------- PANEL ROUTES ---------------------- //
@@ -1291,4 +1291,5 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
