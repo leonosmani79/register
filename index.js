@@ -52,6 +52,30 @@ if (!PANEL_CLIENT_ID || !PANEL_CLIENT_SECRET || !PANEL_REDIRECT_URI || !PANEL_SE
   console.error("❌ Missing PANEL OAuth envs (PANEL_CLIENT_ID/SECRET/REDIRECT_URI/SESSION_SECRET)");
   process.exit(1);
 }
+const DS = {
+  regColor: 0x5865F2,     // blurple
+  confirmColor: 0xFFB300, // amber
+  dangerColor: 0xFF4B4B,
+  okColor: 0x4CAF50,
+
+  // Put a DS logo url here (optional). If empty, it will use guild icon.
+  logoUrl: process.env.DS_LOGO_URL || "",
+
+  divider: "━━━━━━━━━━━━━━━━━━━━",
+};
+
+function fmtOpenClosed(flag) {
+  return flag ? "✅ **OPEN**" : "❌ **CLOSED**";
+}
+
+function safeTime(t) {
+  if (!t) return "—";
+  return String(t);
+}
+
+function getGuildThumb(guild) {
+  return DS.logoUrl || (guild?.iconURL?.({ size: 256 }) ?? null);
+}
 
 const ADMIN_IDS = (PANEL_ADMIN_IDS || "")
   .split(",")
@@ -1654,6 +1678,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
