@@ -555,7 +555,7 @@ function renderLayout({ title, user, selectedGuild, active, body }) {
 }
 
 function requireLogin(req, res, next) {
-  if (!req.session.user) return res.redirect("/auth/discord");
+  if (!req.session.user) return res.redirect("/"); // landing page first
   if (ADMIN_IDS.length && !ADMIN_IDS.includes(req.session.user.id)) return res.status(403).send("Forbidden");
   next();
 }
@@ -1291,5 +1291,6 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
