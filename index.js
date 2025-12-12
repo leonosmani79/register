@@ -1159,6 +1159,43 @@ app.get("/scrims/:id", requireLogin, (req, res) => {
     `
   }));
 });
+app.get("/scrims/:id/messages", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  if (!guildId) return res.redirect("/servers");
+
+  const scrimId = Number(req.params.id);
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  const ok = req.query.ok ? `<div class="warn" style="background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.55);color:#bbf7d0">✅ Posted: ${esc(req.query.ok)}</div>` : "";
+  const err = req.query.err ? `<div class="warn">❌ ${esc(req.query.err)}</div>` : "";
+
+  res.send(renderLayout({
+    title: "Messages",
+    user: req.session.user,
+    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+    active: "scrims",
+    body: `
+      <h2 class="h">Messages — ${esc(scrim.name)}</h2>
+      <p class="muted">Post the Discord embeds into the channels you set in Settings.</p>
+      ${ok}${err}
+
+      <div class="smallrow">
+        <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0">
+          <button type="submit">📨 Post Registration Embed</button>
+        </form>
+
+        <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0">
+          <button type="submit" class="btn2">📋 Create/Update List Message</button>
+        </form>
+
+        <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0">
+          <button type="submit" class="btn2">✅ Create/Update Confirm Message</button>
+        </form>
+      </div>
+    `
+  }));
+});
 
 
 // Save slot settings
@@ -1535,6 +1572,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
