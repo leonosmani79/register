@@ -4,7 +4,7 @@
 
   "fontFile": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 
-  "slot":  { "x": 40,  "y": 25, "size": 35, "color": "white", "stroke": "black", "strokeW": 3 },
-  "name":  { "x": 200, "y": 25, "size": 35, "color": "white", "stroke": "black", "strokeW": 3 },
-  "tag":   { "x": 400, "y": 25, "size": 35, "color": "white", "stroke": "black", "strokeW": 3, "alignRight": true }
+  "slot":  { "x": 40,  "y": 20, "size": 40, "color": "white", "stroke": "black", "strokeW": 3 },
+  "name":  { "x": 150, "y": 20, "size": 40, "color": "white", "stroke": "black", "strokeW": 3 },
+  "tag":   { "x": 500, "y": 20, "size": 40, "color": "white", "stroke": "black", "strokeW": 3, "alignRight": true }
 }
