@@ -470,78 +470,133 @@ async function updateConfirmEmbed(scrim) {
 }
 
 async function updateTeamsListEmbed(scrim) {
-  if (!scrim.list_channel_id || !scrim.list_message_id) return;
+  try {
+    if (!scrim?.list_channel_id || !scrim?.list_message_id) {
+      console.log("updateTeamsListEmbed: missing list channel/message", {
+        scrimId: scrim?.id,
+        list_channel_id: scrim?.list_channel_id,
+        list_message_id: scrim?.list_message_id,
+      });
+      return;
+    }
 
-  const guild = await discord.guilds.fetch(scrim.guild_id);
-  const channel = await guild.channels.fetch(scrim.list_channel_id).catch(() => null);
-  if (!channel) return;
+    const guild = await discord.guilds.fetch(scrim.guild_id).catch((e) => {
+      console.log("updateTeamsListEmbed: guild fetch failed", scrim.guild_id, e?.message || e);
+      return null;
+    });
+    if (!guild) return;
 
-  const msg = await channel.messages.fetch(scrim.list_message_id).catch(() => null);
-  if (!msg) return;
+    const channel = await guild.channels.fetch(scrim.list_channel_id).catch((e) => {
+      console.log("updateTeamsListEmbed: channel fetch failed", scrim.list_channel_id, e?.message || e);
+      return null;
+    });
+    if (!channel) return;
 
-  const teams = q.teamsByScrim.all(scrim.id);
-  const totalSlots = scrim.max_slot - scrim.min_slot + 1;
-  const teamBySlot = new Map(teams.map((t) => [t.slot, t]));
+    // ✅ allow ANY text-based channel
+    if (!channel.isTextBased()) {
+      console.log("updateTeamsListEmbed: channel not text based", {
+        channelId: scrim.list_channel_id,
+        type: channel.type,
+      });
+      return;
+    }
 
-  const lines = [];
-  for (let s = scrim.min_slot; s <= scrim.max_slot; s++) {
-    const t = teamBySlot.get(s);
-    if (!t) lines.push(`**#${s}** ┃ _empty_`);
-    else lines.push(`**#${s}** ┃ **${t.team_tag}** — ${t.team_name} ${t.confirmed ? "✅" : "⏳"}`);
-  }
+    const msg = await channel.messages.fetch(scrim.list_message_id).catch((e) => {
+      console.log("updateTeamsListEmbed: message fetch failed", {
+        channelId: scrim.list_channel_id,
+        messageId: scrim.list_message_id,
+        err: e?.message || e,
+      });
+      return null;
+    });
 
-  const half = Math.ceil(lines.length / 2);
-  const left = lines.slice(0, half).join("\n");
-  const right = lines.slice(half).join("\n");
+    if (!msg) {
+      // message deleted or bot can't read history => recreate
+      console.log("updateTeamsListEmbed: list message missing, recreating...");
+      const newMsg = await channel.send({ content: "Recreating teams list..." }).catch((e) => {
+        console.log("updateTeamsListEmbed: failed to recreate message", e?.message || e);
+        return null;
+      });
+      if (!newMsg) return;
 
-  const embed = new EmbedBuilder()
-    .setColor(0xffb300)
-    .setTitle(`📋 ${scrim.name} — TEAM LIST`)
-    .setDescription(
-      [
-        `👥 **Teams:** ${teams.length}/${totalSlots}`,
-        `📝 **Registration:** ${scrim.registration_open ? "🟢 OPEN" : "🔴 CLOSED"}`,
-        `✅ **Confirms:** ${scrim.confirm_open ? "🟢 OPEN" : "🔴 CLOSED"}`,
-        "",
-        "✅ = confirmed • ⏳ = waiting",
-      ].join("\n")
-    )
-    .addFields(
-      { name: "Slots", value: left || "_none_", inline: true },
-      { name: "⠀", value: right || "_none_", inline: true }
-    )
-    .setFooter({ text: `DarkSide Scrims • Scrim ID: ${scrim.id}` })
-    .setTimestamp(new Date());
+      q.setListMessage.run(scrim.list_channel_id, newMsg.id, scrim.id);
+      scrim = q.scrimById.get(scrim.id); // refresh
+    }
 
-  const components = [];
-  const filled = teams.map((t) => ({
-    label: `Remove #${t.slot} — ${t.team_tag}`,
-    description: t.team_name.slice(0, 90),
-    value: String(t.slot),
-  }));
+    const teams = q.teamsByScrim.all(scrim.id);
+    const totalSlots = scrim.max_slot - scrim.min_slot + 1;
+    const teamBySlot = new Map(teams.map((t) => [t.slot, t]));
 
-  if (filled.length) {
+    const lines = [];
+    for (let s = scrim.min_slot; s <= scrim.max_slot; s++) {
+      const t = teamBySlot.get(s);
+      if (!t) lines.push(`**#${s}** ┃ _empty_`);
+      else lines.push(`**#${s}** ┃ **${t.team_tag}** — ${t.team_name} ${t.confirmed ? "✅" : "⏳"}`);
+    }
+
+    const half = Math.ceil(lines.length / 2);
+    const left = lines.slice(0, half).join("\n");
+    const right = lines.slice(half).join("\n");
+
+    const embed = new EmbedBuilder()
+      .setColor(0xffb300)
+      .setTitle(`📋 ${scrim.name} — TEAM LIST`)
+      .setDescription(
+        [
+          `👥 **Teams:** ${teams.length}/${totalSlots}`,
+          `📝 **Registration:** ${scrim.registration_open ? "🟢 OPEN" : "🔴 CLOSED"}`,
+          `✅ **Confirms:** ${scrim.confirm_open ? "🟢 OPEN" : "🔴 CLOSED"}`,
+          "",
+          "✅ = confirmed • ⏳ = waiting",
+        ].join("\n")
+      )
+      .addFields(
+        { name: "Slots", value: left || "_none_", inline: true },
+        { name: "⠀", value: right || "_none_", inline: true }
+      )
+      .setFooter({ text: `DarkSide Scrims • Scrim ID: ${scrim.id}` })
+      .setTimestamp(new Date());
+
+    const components = [];
+
+    // Discord limit: select menu max 25 options (you already slice ✅)
+    const filled = teams.map((t) => ({
+      label: `Remove #${t.slot} — ${t.team_tag}`.slice(0, 100),
+      description: (t.team_name || "").slice(0, 90),
+      value: String(t.slot),
+    }));
+
+    if (filled.length) {
+      components.push(
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`rmteam:${scrim.id}`)
+            .setPlaceholder("🛠 Staff: remove a team...")
+            .addOptions(filled.slice(0, 25))
+        )
+      );
+    }
+
     components.push(
       new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(`rmteam:${scrim.id}`)
-          .setPlaceholder("🛠 Staff: remove a team...")
-          .addOptions(filled.slice(0, 25))
+        new ButtonBuilder()
+          .setCustomId(`refreshlist:${scrim.id}`)
+          .setLabel("Refresh List")
+          .setEmoji("🔄")
+          .setStyle(ButtonStyle.Secondary)
       )
     );
+
+    // edit the correct message (if recreated, scrim was refreshed above)
+    const finalMsg = await channel.messages.fetch(scrim.list_message_id).catch(() => null);
+    if (!finalMsg) return;
+
+    await finalMsg.edit({ content: "", embeds: [embed], components });
+
+    console.log("updateTeamsListEmbed: updated OK", { scrimId: scrim.id });
+  } catch (e) {
+    console.log("updateTeamsListEmbed: fatal error", e?.message || e);
   }
-
-  components.push(
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`refreshlist:${scrim.id}`)
-        .setLabel("Refresh List")
-        .setEmoji("🔄")
-        .setStyle(ButtonStyle.Secondary)
-    )
-  );
-
-  await msg.edit({ content: "", embeds: [embed], components });
 }
 
 // ---------- DISCORD INTERACTIONS ----------
@@ -1731,6 +1786,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
