@@ -45,7 +45,7 @@ if (!DISCORD_TOKEN || !CLIENT_ID) {
   process.exit(1);
 }
 if (!BASE_URL) {
-  console.error("❌ Missing BASE_URL (must be public, e.g. https://register.darksideorg.com)");
+  console.error("❌ Missing BASE_URL (public URL, e.g. https://register.darksideorg.com)");
   process.exit(1);
 }
 if (!PANEL_CLIENT_ID || !PANEL_CLIENT_SECRET || !PANEL_REDIRECT_URI || !PANEL_SESSION_SECRET) {
@@ -57,6 +57,9 @@ const ADMIN_IDS = (PANEL_ADMIN_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
+// helper: normalize base url (no trailing slash)
+const BASE = String(BASE_URL).replace(/\/+$/, "");
 
 // ---------------------- UPLOADS ---------------------- //
 const uploadDir = path.join(__dirname, "uploads");
@@ -78,6 +81,8 @@ const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 
 db.exec(`
+PRAGMA foreign_keys = ON;
+
 CREATE TABLE IF NOT EXISTS scrims (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id TEXT NOT NULL,
@@ -136,6 +141,7 @@ CREATE TABLE IF NOT EXISTS results (
 const q = {
   scrimById: db.prepare("SELECT * FROM scrims WHERE id = ?"),
   scrimsByGuild: db.prepare("SELECT * FROM scrims WHERE guild_id = ? ORDER BY id DESC"),
+
   createScrim: db.prepare(`
     INSERT INTO scrims (
       guild_id, name, min_slot, max_slot,
@@ -143,6 +149,7 @@ const q = {
       open_at, close_at, confirm_open_at, confirm_close_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
+
   updateScrim: db.prepare(`
     UPDATE scrims SET
       name = ?,
@@ -158,8 +165,10 @@ const q = {
       confirm_close_at = ?
     WHERE id = ? AND guild_id = ?
   `),
+
   setRegOpen: db.prepare("UPDATE scrims SET registration_open = ? WHERE id = ? AND guild_id = ?"),
   setConfirmOpen: db.prepare("UPDATE scrims SET confirm_open = ? WHERE id = ? AND guild_id = ?"),
+
   setListMessage: db.prepare("UPDATE scrims SET list_channel_id = ?, list_message_id = ? WHERE id = ?"),
   setConfirmMessage: db.prepare("UPDATE scrims SET confirm_channel_id = ?, confirm_message_id = ? WHERE id = ?"),
 
@@ -171,8 +180,10 @@ const q = {
     INSERT INTO teams (scrim_id, slot, team_name, team_tag, logo_filename, owner_user_id, confirmed)
     VALUES (?, ?, ?, ?, ?, ?, 0)
   `),
+
   removeTeamBySlot: db.prepare("DELETE FROM teams WHERE scrim_id = ? AND slot = ?"),
   removeTeamByUser: db.prepare("DELETE FROM teams WHERE scrim_id = ? AND owner_user_id = ?"),
+
   setConfirmedByUser: db.prepare("UPDATE teams SET confirmed = 1 WHERE scrim_id = ? AND owner_user_id = ?"),
 
   upsertResults: db.prepare(`
@@ -215,6 +226,121 @@ discord.once(Events.ClientReady, () => {
   console.log(`✅ Logged in as ${discord.user.tag}`);
 });
 
+// ---------- DISCORD EMBEDS HELPERS ----------
+async function ensureListMessage(scrim) {
+  if (!scrim.list_channel_id) return;
+  const guild = await discord.guilds.fetch(scrim.guild_id);
+  const channel = await guild.channels.fetch(scrim.list_channel_id).catch(() => null);
+  if (!channel || channel.type !== ChannelType.GuildText) return;
+
+  if (!scrim.list_message_id) {
+    const msg = await channel.send({ content: "Creating teams list..." });
+    q.setListMessage.run(scrim.list_channel_id, msg.id, scrim.id);
+    scrim = q.scrimById.get(scrim.id);
+  }
+  await updateTeamsListEmbed(scrim);
+}
+
+async function ensureConfirmMessage(scrim) {
+  if (!scrim.confirm_channel_id) return;
+  const guild = await discord.guilds.fetch(scrim.guild_id);
+  const channel = await guild.channels.fetch(scrim.confirm_channel_id).catch(() => null);
+  if (!channel || channel.type !== ChannelType.GuildText) return;
+
+  if (!scrim.confirm_message_id) {
+    const msg = await channel.send({ content: "Creating confirms..." });
+    q.setConfirmMessage.run(scrim.confirm_channel_id, msg.id, scrim.id);
+    scrim = q.scrimById.get(scrim.id);
+  }
+  await updateConfirmEmbed(scrim);
+}
+
+async function updateConfirmEmbed(scrim) {
+  if (!scrim.confirm_channel_id || !scrim.confirm_message_id) return;
+  const guild = await discord.guilds.fetch(scrim.guild_id);
+  const channel = await guild.channels.fetch(scrim.confirm_channel_id).catch(() => null);
+  if (!channel || channel.type !== ChannelType.GuildText) return;
+
+  const msg = await channel.messages.fetch(scrim.confirm_message_id).catch(() => null);
+  if (!msg) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${scrim.name} — CONFIRMS`)
+    .setDescription(
+      [
+        scrim.confirm_open_at ? `Open: **${scrim.confirm_open_at}**` : null,
+        scrim.confirm_close_at ? `Close: **${scrim.confirm_close_at}**` : null,
+        "",
+        scrim.confirm_open ? "✅ Confirms are **OPEN**" : "❌ Confirms are **CLOSED**",
+        "",
+        "Only teams that registered can confirm/drop.",
+      ].filter(Boolean).join("\n")
+    )
+    .setColor(0xffb300);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`confirm:${scrim.id}`).setLabel("Confirm Slot").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`drop:${scrim.id}`).setLabel("Drop Slot").setStyle(ButtonStyle.Danger),
+  );
+
+  await msg.edit({ content: "", embeds: [embed], components: [row] });
+}
+
+async function updateTeamsListEmbed(scrim) {
+  if (!scrim.list_channel_id || !scrim.list_message_id) return;
+
+  const guild = await discord.guilds.fetch(scrim.guild_id);
+  const channel = await guild.channels.fetch(scrim.list_channel_id).catch(() => null);
+  if (!channel || channel.type !== ChannelType.GuildText) return;
+
+  const msg = await channel.messages.fetch(scrim.list_message_id).catch(() => null);
+  if (!msg) return;
+
+  const teams = q.teamsByScrim.all(scrim.id);
+  const totalSlots = scrim.max_slot - scrim.min_slot + 1;
+
+  const lines = [];
+  for (let s = scrim.min_slot; s <= scrim.max_slot; s++) {
+    const t = teams.find((x) => x.slot === s);
+    if (!t) lines.push(`**#${s}** — *(empty)*`);
+    else lines.push(`**#${t.slot}** — **${t.team_name}** [**${t.team_tag}**] ${t.confirmed ? "✅" : "⏳"}`);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${scrim.name} — Teams (${teams.length}/${totalSlots})`)
+    .setDescription(lines.join("\n"))
+    .setColor(0x5865f2)
+    .setFooter({ text: `REG: ${scrim.registration_open ? "OPEN" : "CLOSED"} | CONFIRMS: ${scrim.confirm_open ? "OPEN" : "CLOSED"}` });
+
+  const components = [];
+
+  const filled = teams.map((t) => ({
+    label: `Remove #${t.slot} — ${t.team_tag}`,
+    description: t.team_name.slice(0, 90),
+    value: String(t.slot),
+  }));
+
+  if (filled.length) {
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`rmteam:${scrim.id}`)
+          .setPlaceholder("Staff: remove a team...")
+          .addOptions(filled.slice(0, 25))
+      )
+    );
+  }
+
+  components.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`refreshlist:${scrim.id}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary)
+    )
+  );
+
+  await msg.edit({ embeds: [embed], components });
+}
+
+// ---------- DISCORD INTERACTIONS ----------
 discord.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand() && interaction.commandName === "scrims") {
@@ -222,10 +348,11 @@ discord.on(Events.InteractionCreate, async (interaction) => {
       const can =
         member?.permissions?.has?.(PermissionFlagsBits.ManageGuild) ||
         member?.permissions?.has?.(PermissionFlagsBits.Administrator);
+
       if (!can) return interaction.reply({ content: "❌ Need Manage Server.", ephemeral: true });
 
       return interaction.reply({
-        content: `Panel: https://darksideorg.com/panel`,
+        content: `Panel: ${BASE}/panel`,
         ephemeral: true,
       });
     }
@@ -233,18 +360,16 @@ discord.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton()) {
       const id = interaction.customId;
 
-      // user wants personal register link
       if (id.startsWith("reglink:")) {
         const scrimId = Number(id.split(":")[1]);
         const scrim = q.scrimById.get(scrimId);
         if (!scrim) return interaction.reply({ content: "Scrim not found.", ephemeral: true });
         if (!scrim.registration_open) return interaction.reply({ content: "❌ Registration closed.", ephemeral: true });
 
-        const url = `${BASE_URL}/register/${scrimId}?user=${interaction.user.id}`;
+        const url = `${BASE}/register/${scrimId}?user=${interaction.user.id}`;
         return interaction.reply({ content: `✅ Your link:\n${url}`, ephemeral: true });
       }
 
-      // confirm
       if (id.startsWith("confirm:")) {
         const scrimId = Number(id.split(":")[1]);
         const scrim = q.scrimById.get(scrimId);
@@ -255,11 +380,10 @@ discord.on(Events.InteractionCreate, async (interaction) => {
         if (!team) return interaction.reply({ content: "❌ You are not registered.", ephemeral: true });
 
         q.setConfirmedByUser.run(scrimId, interaction.user.id);
-        await updateTeamsListEmbed(scrim).catch(() => {});
+        await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
         return interaction.reply({ content: `✅ Confirmed slot #${team.slot}`, ephemeral: true });
       }
 
-      // drop
       if (id.startsWith("drop:")) {
         const scrimId = Number(id.split(":")[1]);
         const scrim = q.scrimById.get(scrimId);
@@ -278,7 +402,7 @@ discord.on(Events.InteractionCreate, async (interaction) => {
           } catch {}
         }
 
-        await updateTeamsListEmbed(scrim).catch(() => {});
+        await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
         return interaction.reply({ content: `⛔ Dropped slot #${team.slot}`, ephemeral: true });
       }
 
@@ -294,7 +418,6 @@ discord.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isStringSelectMenu()) {
       const id = interaction.customId;
 
-      // staff remove via select menu
       if (id.startsWith("rmteam:")) {
         const scrimId = Number(id.split(":")[1]);
         const scrim = q.scrimById.get(scrimId);
@@ -320,7 +443,7 @@ discord.on(Events.InteractionCreate, async (interaction) => {
           } catch {}
         }
 
-        await updateTeamsListEmbed(scrim).catch(() => {});
+        await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
         return interaction.reply({ content: `⛔ Removed #${slot} (${team.team_tag})`, ephemeral: true });
       }
     }
@@ -330,126 +453,16 @@ discord.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-async function ensureListMessage(scrim) {
-  if (!scrim.list_channel_id) return;
-  const guild = await discord.guilds.fetch(scrim.guild_id);
-  const channel = await guild.channels.fetch(scrim.list_channel_id).catch(() => null);
-  if (!channel) return;
-
-  if (!scrim.list_message_id) {
-    const msg = await channel.send({ content: "Creating teams list..." });
-    q.setListMessage.run(scrim.list_channel_id, msg.id, scrim.id);
-    scrim = q.scrimById.get(scrim.id);
-  }
-  await updateTeamsListEmbed(scrim);
-}
-
-async function ensureConfirmMessage(scrim) {
-  if (!scrim.confirm_channel_id) return;
-  const guild = await discord.guilds.fetch(scrim.guild_id);
-  const channel = await guild.channels.fetch(scrim.confirm_channel_id).catch(() => null);
-  if (!channel) return;
-
-  if (!scrim.confirm_message_id) {
-    const msg = await channel.send({ content: "Creating confirms..." });
-    q.setConfirmMessage.run(scrim.confirm_channel_id, msg.id, scrim.id);
-    scrim = q.scrimById.get(scrim.id);
-  }
-  await updateConfirmEmbed(scrim);
-}
-
-async function updateConfirmEmbed(scrim) {
-  if (!scrim.confirm_channel_id || !scrim.confirm_message_id) return;
-  const guild = await discord.guilds.fetch(scrim.guild_id);
-  const channel = await guild.channels.fetch(scrim.confirm_channel_id).catch(() => null);
-  if (!channel) return;
-
-  const msg = await channel.messages.fetch(scrim.confirm_message_id).catch(() => null);
-  if (!msg) return;
-
-  const embed = new EmbedBuilder()
-    .setTitle(`${scrim.name} — CONFIRMS`)
-    .setDescription(
-      [
-        scrim.confirm_open_at ? `Open: **${scrim.confirm_open_at}**` : null,
-        scrim.confirm_close_at ? `Close: **${scrim.confirm_close_at}**` : null,
-        "",
-        scrim.confirm_open ? "✅ Confirms are **OPEN**" : "❌ Confirms are **CLOSED**",
-        "",
-        "Only teams that registered can confirm/drop."
-      ].filter(Boolean).join("\n")
-    )
-    .setColor(0xffb300);
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`confirm:${scrim.id}`).setLabel("Confirm Slot").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`drop:${scrim.id}`).setLabel("Drop Slot").setStyle(ButtonStyle.Danger),
-  );
-
-  await msg.edit({ content: "", embeds: [embed], components: [row] });
-}
-
-async function updateTeamsListEmbed(scrim) {
-  if (!scrim.list_channel_id || !scrim.list_message_id) return;
-
-  const guild = await discord.guilds.fetch(scrim.guild_id);
-  const channel = await guild.channels.fetch(scrim.list_channel_id).catch(() => null);
-  if (!channel) return;
-
-  const msg = await channel.messages.fetch(scrim.list_message_id).catch(() => null);
-  if (!msg) return;
-
-  const teams = q.teamsByScrim.all(scrim.id);
-  const totalSlots = scrim.max_slot - scrim.min_slot + 1;
-
-  const lines = [];
-  for (let s = scrim.min_slot; s <= scrim.max_slot; s++) {
-    const t = teams.find((x) => x.slot === s);
-    if (!t) lines.push(`**#${s}** — *(empty)*`);
-    else lines.push(`**#${t.slot}** — **${t.team_name}** [**${t.team_tag}**] ${t.confirmed ? "✅" : "⏳"}`);
-  }
-
-  const embed = new EmbedBuilder()
-    .setTitle(`${scrim.name} — Teams (${teams.length}/${totalSlots})`)
-    .setDescription(lines.join("\n"))
-    .setColor(0x5865f2)
-    .setFooter({ text: `REG: ${scrim.registration_open ? "OPEN" : "CLOSED"} | CONFIRMS: ${scrim.confirm_open ? "OPEN" : "CLOSED"}` });
-
-  const components = [];
-
-  // staff remove select (filled only)
-  const filled = teams.map((t) => ({
-    label: `Remove #${t.slot} — ${t.team_tag}`,
-    description: t.team_name.slice(0, 90),
-    value: String(t.slot),
-  }));
-  if (filled.length) {
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(`rmteam:${scrim.id}`)
-          .setPlaceholder("Staff: remove a team...")
-          .addOptions(filled.slice(0, 25))
-      )
-    );
-  }
-
-  components.push(
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`refreshlist:${scrim.id}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary)
-    )
-  );
-
-  await msg.edit({ embeds: [embed], components });
-}
-
 // ---------------------- EXPRESS ---------------------- //
 const app = express();
+
+// behind nginx
 app.set("trust proxy", 1);
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// IMPORTANT: secure cookies for HTTPS (otherwise login loops)
+// IMPORTANT: secure cookies for HTTPS (fix login loops behind nginx)
 app.use(
   session({
     name: "ds_scrims_session",
@@ -522,6 +535,7 @@ function renderLayout({ title, user, selectedGuild, active, body }) {
     .row>*{flex:1;min-width:160px}
     .muted{color:var(--muted)}
     .h{font-family:Orbitron;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
+    .warn{margin-top:12px;padding:10px;border-radius:12px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.55);color:#fecaca;font-size:13px}
   </style>
 </head>
 <body>
@@ -561,6 +575,12 @@ function hasManagePermission(g) {
   return (p & ADMIN) === ADMIN || (p & MANAGE_GUILD) === MANAGE_GUILD || g.owner;
 }
 
+// IMPORTANT: filter only servers where bot exists
+function botIsInGuild(guildId) {
+  // bot must be logged in and in that server
+  return discord.guilds.cache.has(String(guildId));
+}
+
 // ---------------------- OAUTH ---------------------- //
 app.get("/auth/discord", (req, res) => {
   const params = new URLSearchParams({
@@ -568,6 +588,7 @@ app.get("/auth/discord", (req, res) => {
     redirect_uri: PANEL_REDIRECT_URI,
     response_type: "code",
     scope: "identify guilds",
+    prompt: "consent",
   });
   res.redirect(`https://discord.com/oauth2/authorize?${params.toString()}`);
 });
@@ -602,6 +623,7 @@ app.get("/auth/discord/callback", async (req, res) => {
     req.session.user = user;
     req.session.access_token = tokens.access_token;
     req.session.selectedGuildId = null;
+    req.session.selectedGuildName = null;
 
     return res.redirect("/servers");
   } catch (e) {
@@ -615,17 +637,25 @@ app.get("/logout", (req, res) => {
 });
 
 // ---------------------- PANEL ROUTES ---------------------- //
+app.get("/", (req, res) => res.redirect("/panel"));
+
 app.get("/panel", requireLogin, (req, res) => {
   if (!req.session.selectedGuildId) return res.redirect("/servers");
   return res.redirect("/scrims");
 });
 
+// ✅ ONLY show servers the user can manage AND that already have the bot
 app.get("/servers", requireLogin, async (req, res) => {
   try {
     const guilds = await discordApi("/users/@me/guilds", req.session.access_token);
+
+    // user can manage
     const manageable = guilds.filter(hasManagePermission);
 
-    const rows = manageable
+    // bot is inside
+    const filtered = manageable.filter((g) => botIsInGuild(g.id));
+
+    const rows = filtered
       .map(
         (g) => `
       <tr>
@@ -641,6 +671,14 @@ app.get("/servers", requireLogin, async (req, res) => {
       )
       .join("");
 
+    const note =
+      filtered.length === 0
+        ? `<div class="warn">
+             No servers found where (1) you have Manage Server/Admin AND (2) the bot is installed.<br/>
+             Add the bot to your server first, then login again.
+           </div>`
+        : "";
+
     res.send(
       renderLayout({
         title: "Choose Server",
@@ -649,10 +687,11 @@ app.get("/servers", requireLogin, async (req, res) => {
         active: "servers",
         body: `
           <h2 class="h">Choose a server</h2>
-          <p class="muted">Only servers where you have <b>Manage Server</b> or <b>Administrator</b>.</p>
+          <p class="muted">Showing only servers you manage <b>AND</b> where the bot is installed.</p>
+          ${note}
           <table>
             <thead><tr><th>Server</th><th>Action</th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="2">No manageable servers found.</td></tr>`}</tbody>
+            <tbody>${rows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
           </table>
         `,
       })
@@ -664,9 +703,11 @@ app.get("/servers", requireLogin, async (req, res) => {
 });
 
 app.post("/servers/select", requireLogin, (req, res) => {
-  const { guildId } = req.body;
+  const { guildId, guildName } = req.body;
   if (!guildId) return res.redirect("/servers");
-  req.session.selectedGuildId = guildId;
+  if (!botIsInGuild(guildId)) return res.status(400).send("Bot is not in this server.");
+  req.session.selectedGuildId = String(guildId);
+  req.session.selectedGuildName = String(guildName || "Selected");
   res.redirect("/scrims");
 });
 
@@ -703,7 +744,7 @@ app.get("/scrims", requireLogin, (req, res) => {
     renderLayout({
       title: "Scrims",
       user: req.session.user,
-      selectedGuild: { id: guildId, name: "Selected" },
+      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
       active: "scrims",
       body: `
         <h2 class="h">Scrims</h2>
@@ -724,7 +765,7 @@ app.get("/scrims/new", requireLogin, (req, res) => {
     renderLayout({
       title: "Create Scrim",
       user: req.session.user,
-      selectedGuild: { id: guildId, name: "Selected" },
+      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
       active: "new",
       body: `
         <h2 class="h">Create Scrim</h2>
@@ -813,7 +854,7 @@ app.get("/scrims/:id", requireLogin, (req, res) => {
     renderLayout({
       title: "Manage Scrim",
       user: req.session.user,
-      selectedGuild: { id: guildId, name: "Selected" },
+      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
       active: "scrims",
       body: `
         <h2 class="h">${esc(scrim.name)} <span class="muted">#${scrim.id}</span></h2>
@@ -1056,7 +1097,7 @@ app.get("/scrims/:id/results", requireLogin, (req, res) => {
     renderLayout({
       title: "Results",
       user: req.session.user,
-      selectedGuild: { id: guildId, name: "Selected" },
+      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
       active: "scrims",
       body: `
         <h2 class="h">${esc(scrim.name)} — Results</h2>
@@ -1211,8 +1252,10 @@ app.post("/register/:scrimId", upload.single("teamLogo"), async (req, res) => {
   `));
 });
 
+// ---------------------- HEALTH ---------------------- //
+app.get("/health", (req, res) => res.json({ ok: true }));
+
 // ---------------------- START ---------------------- //
-app.listen(PORT, () => console.log(`🌐 Web running: ${BASE_URL} (port ${PORT})`));
+app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
-
