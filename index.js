@@ -1410,31 +1410,25 @@ app.post("/scrims/:id/postRegMessage", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
   const scrim = q.scrimById.get(scrimId);
-  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  if (!scrim || scrim.guild_id !== guildId)
+    return res.status(404).send("Scrim not found");
 
   if (scrim.registration_channel_id) {
     try {
       const guild = await discord.guilds.fetch(scrim.guild_id);
       const chan = await guild.channels.fetch(scrim.registration_channel_id);
+
       if (chan && chan.type === ChannelType.GuildText) {
-        const embed = new EmbedBuilder()
-          .setTitle(`${scrim.name} — Registration`)
-          .setDescription(
-            [
-              `Slots: **${scrim.min_slot}-${scrim.max_slot}**`,
-              scrim.open_at ? `Open: **${scrim.open_at}**` : null,
-              scrim.close_at ? `Close: **${scrim.close_at}**` : null,
-              "",
-              "Click **Register Team** to get your personal link.",
-            ].filter(Boolean).join("\n")
-          )
-          .setColor(0x5865f2);
+        const teams = q.teamsByScrim.all(scrim.id);
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`reglink:${scrim.id}`).setLabel("Register Team").setStyle(ButtonStyle.Primary)
-        );
+        const embed = buildRegEmbed(scrim, guild, teams.length);
+        const components = buildRegComponents(scrim);
 
-        await chan.send({ embeds: [embed], components: [row] });
+        await chan.send({
+          embeds: [embed],
+          components,
+        });
       }
     } catch (e) {
       console.error("postRegMessage error:", e);
@@ -1443,6 +1437,7 @@ app.post("/scrims/:id/postRegMessage", requireLogin, async (req, res) => {
 
   res.redirect(`/scrims/${scrimId}`);
 });
+
 
 app.post("/scrims/:id/postList", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -1678,6 +1673,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
