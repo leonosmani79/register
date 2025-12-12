@@ -1,0 +1,10 @@
+{
+  "width": 800,
+  "height": 64,
+
+  "fontFile": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+
+  "slot":  { "x": 40,  "y": 42, "size": 34, "color": "white", "stroke": "black", "strokeW": 3 },
+  "name":  { "x": 200, "y": 42, "size": 28, "color": "white", "stroke": "black", "strokeW": 3 },
+  "tag":   { "x": 700, "y": 42, "size": 28, "color": "white", "stroke": "black", "strokeW": 3, "alignRight": true }
+}
