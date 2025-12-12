@@ -1436,97 +1436,7 @@ app.post("/scrims/new", requireLogin, (req, res) => {
   res.redirect("/scrims");
 });
 
-app.get("/scrims/:id", requireLogin, (req, res) => {
-  const guildId = req.session.selectedGuildId;
-  if (!guildId) return res.redirect("/servers");
-
-  const scrimId = Number(req.params.id);
-  const scrim = q.scrimById.get(scrimId);
-  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
-
-  const teams = q.teamsByScrim.all(scrimId);
-
-  res.send(
-    renderLayout({
-      title: "Manage Scrim",
-      user: req.session.user,
-      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
-      active: "scrims",
-      body: `
-        <h2 class="h">${esc(scrim.name)} <span class="muted">#${scrim.id}</span></h2>
-
-        <div class="row">
-          <form method="POST" action="/scrims/${scrimId}/toggleReg" style="margin:0"><button type="submit">${scrim.registration_open ? "Close Registration" : "Open Registration"}</button></form>
-          <form method="POST" action="/scrims/${scrimId}/toggleConfirm" style="margin:0"><button class="btn2" type="submit">${scrim.confirm_open ? "Close Confirms" : "Open Confirms"}</button></form>
-          <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0"><button class="btn2" type="submit">Post Reg Message</button></form>
-          <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post/Update List</button></form>
-          <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post/Update Confirms</button></form>
-        </div>
-
-        <hr style="border:none;height:1px;background:rgba(255,255,255,.06);margin:14px 0"/>
-
-        <h3 class="h">Settings</h3>
-        <form method="POST" action="/scrims/${scrimId}/edit">
-          <label>Scrim Name</label>
-          <input name="name" value="${esc(scrim.name)}" required/>
-
-          <div class="row">
-            <div><label>Min Slot</label><input name="minSlot" type="number" value="${scrim.min_slot}" required/></div>
-            <div><label>Max Slot</label><input name="maxSlot" type="number" value="${scrim.max_slot}" required/></div>
-          </div>
-
-          <label>Registration Channel ID</label>
-          <input name="registrationChannelId" value="${esc(scrim.registration_channel_id || "")}"/>
-
-          <label>Teams List Channel ID</label>
-          <input name="listChannelId" value="${esc(scrim.list_channel_id || "")}"/>
-
-          <label>Confirm Channel ID</label>
-          <input name="confirmChannelId" value="${esc(scrim.confirm_channel_id || "")}"/>
-
-          <label>Team Role ID</label>
-          <input name="teamRoleId" value="${esc(scrim.team_role_id || "")}"/>
-
-          <div class="row">
-            <div><label>Reg Open Time</label><input name="openAt" value="${esc(scrim.open_at || "")}"/></div>
-            <div><label>Reg Close Time</label><input name="closeAt" value="${esc(scrim.close_at || "")}"/></div>
-          </div>
-          <div class="row">
-            <div><label>Confirms Open Time</label><input name="confirmOpenAt" value="${esc(scrim.confirm_open_at || "")}"/></div>
-            <div><label>Confirms Close Time</label><input name="confirmCloseAt" value="${esc(scrim.confirm_close_at || "")}"/></div>
-          </div>
-
-          <button type="submit">Save</button>
-        </form>
-
-        <hr style="border:none;height:1px;background:rgba(255,255,255,.06);margin:14px 0"/>
-
-        <h3 class="h">Teams (${teams.length})</h3>
-        <table>
-          <thead><tr><th>Slot</th><th>Team</th><th>Owner</th><th>Confirmed</th><th>Remove</th></tr></thead>
-          <tbody>
-            ${
-              teams.map((t)=>`
-                <tr>
-                  <td>#${t.slot}</td>
-                  <td><b>${esc(t.team_name)}</b> <span class="muted">[${esc(t.team_tag)}]</span></td>
-                  <td class="muted">${esc(t.owner_user_id)}</td>
-                  <td>${t.confirmed ? "✅" : "⏳"}</td>
-                  <td>
-                    <form method="POST" action="/scrims/${scrimId}/removeSlot" style="margin:0">
-                      <input type="hidden" name="slot" value="${t.slot}"/>
-                      <button class="btn2" type="submit">Remove</button>
-                    </form>
-                  </td>
-                </tr>
-              `).join("") || `<tr><td colspan="5">No teams yet.</td></tr>`
-            }
-          </tbody>
-        </table>
-      `,
-    })
-  );
-});
+// ---------------------- PANEL ACTION ROUTES (FIXED) ---------------------- //
 
 app.post("/scrims/:id/edit", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -1546,6 +1456,10 @@ app.post("/scrims/:id/edit", requireLogin, (req, res) => {
   const confirmOpenAt = String(req.body.confirmOpenAt || "").trim() || null;
   const confirmCloseAt = String(req.body.confirmCloseAt || "").trim() || null;
 
+  // Ensure scrim belongs to selected guild before updating (important)
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
   q.updateScrim.run(
     name, minSlot, maxSlot,
     registrationChannelId, listChannelId, confirmChannelId, teamRoleId,
@@ -1553,87 +1467,96 @@ app.post("/scrims/:id/edit", requireLogin, (req, res) => {
     scrimId, guildId
   );
 
-  res.redirect(`/scrims/${scrimId}`);
+  return res.redirect(`/scrims/${scrimId}`);
 });
 
 app.post("/scrims/:id/toggleReg", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
   const next = scrim.registration_open ? 0 : 1;
   q.setRegOpen.run(next, scrimId, guildId);
 
-  await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
-  res.redirect("/scrims");
+  const fresh = q.scrimById.get(scrimId);
+  await updateTeamsListEmbed(fresh).catch(() => {});
+  await updateConfirmEmbed(fresh).catch(() => {}); // optional but nice
+
+  return res.redirect(`/scrims/${scrimId}`);
 });
 
 app.post("/scrims/:id/toggleConfirm", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
   const next = scrim.confirm_open ? 0 : 1;
   q.setConfirmOpen.run(next, scrimId, guildId);
 
-  await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
-  await updateConfirmEmbed(q.scrimById.get(scrimId)).catch(() => {});
-  res.redirect("/scrims");
+  const fresh = q.scrimById.get(scrimId);
+  await updateTeamsListEmbed(fresh).catch(() => {});
+  await updateConfirmEmbed(fresh).catch(() => {});
+
+  return res.redirect(`/scrims/${scrimId}`);
 });
 
 app.post("/scrims/:id/postRegMessage", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  if (!scrim || scrim.guild_id !== guildId)
-    return res.status(404).send("Scrim not found");
-
-  if (scrim.registration_channel_id) {
-    try {
-      const guild = await discord.guilds.fetch(scrim.guild_id);
-      const chan = await guild.channels.fetch(scrim.registration_channel_id);
-
-      if (chan && chan.type === ChannelType.GuildText) {
-        const teams = q.teamsByScrim.all(scrim.id);
-
-        const embed = buildRegEmbed(scrim, guild, teams.length);
-        const components = buildRegComponents(scrim);
-
-        await chan.send({
-          embeds: [embed],
-          components,
-        });
-      }
-    } catch (e) {
-      console.error("postRegMessage error:", e);
-    }
+  if (!scrim.registration_channel_id) {
+    return res.redirect(`/scrims/${scrimId}`);
   }
 
-  res.redirect(`/scrims/${scrimId}`);
-});
+  try {
+    const guild = await discord.guilds.fetch(scrim.guild_id);
+    const chan = await guild.channels.fetch(scrim.registration_channel_id).catch(() => null);
 
+    if (chan && chan.type === ChannelType.GuildText) {
+      const teams = q.teamsByScrim.all(scrim.id);
+
+      // these MUST exist somewhere above this route:
+      // function buildRegEmbed(scrim, guild, count) { ... }
+      // function buildRegComponents(scrim) { ... }
+      const embed = buildRegEmbed(scrim, guild, teams.length);
+      const components = buildRegComponents(scrim);
+
+      await chan.send({ embeds: [embed], components });
+    }
+  } catch (e) {
+    console.error("postRegMessage error:", e);
+  }
+
+  return res.redirect(`/scrims/${scrimId}`);
+});
 
 app.post("/scrims/:id/postList", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
   await ensureListMessage(scrim).catch(() => {});
-  res.redirect(`/scrims/${scrimId}`);
+  return res.redirect(`/scrims/${scrimId}`);
 });
 
 app.post("/scrims/:id/postConfirmMessage", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
   await ensureConfirmMessage(scrim).catch(() => {});
-  res.redirect(`/scrims/${scrimId}`);
+  return res.redirect(`/scrims/${scrimId}`);
 });
 
 app.post("/scrims/:id/removeSlot", requireLogin, async (req, res) => {
@@ -1647,6 +1570,7 @@ app.post("/scrims/:id/removeSlot", requireLogin, async (req, res) => {
   const team = q.teamBySlot.get(scrimId, slot);
   if (team) {
     q.removeTeamBySlot.run(scrimId, slot);
+
     if (scrim.team_role_id) {
       try {
         const guild = await discord.guilds.fetch(scrim.guild_id);
@@ -1654,11 +1578,14 @@ app.post("/scrims/:id/removeSlot", requireLogin, async (req, res) => {
         await mem.roles.remove(scrim.team_role_id);
       } catch {}
     }
+
     await updateTeamsListEmbed(scrim).catch(() => {});
+    await updateConfirmEmbed(scrim).catch(() => {});
   }
 
-  res.redirect(`/scrims/${scrimId}`);
+  return res.redirect(`/scrims/${scrimId}`);
 });
+
 
 // RESULTS
 app.get("/scrims/:id/results", requireLogin, (req, res) => {
@@ -1850,6 +1777,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
