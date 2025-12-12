@@ -111,6 +111,20 @@ function escDrawtext(s = "") {
     .replace(/'/g, "\\'")
     .replace(/\n/g, " ");
 }
+function isSendableTextChannel(ch) {
+  // discord.js v14
+  return !!ch && typeof ch.isTextBased === "function" && ch.isTextBased() && typeof ch.send === "function";
+}
+
+async function safeSend(channel, payload) {
+  try {
+    if (!isSendableTextChannel(channel)) return { ok: false, error: "Not a sendable text channel" };
+    await channel.send(payload);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
 
 function ensureScrimGenDir(scrimId) {
   const d = path.join(generatedDir, `scrim_${scrimId}`);
@@ -1508,3 +1522,4 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
