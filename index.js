@@ -1410,6 +1410,25 @@ th{color:var(--muted)}
 }
 
 .tableWrap table{ min-width: 700px; }
+/* --- Servers mobile cards --- */
+.cards{ display:none; gap:12px; }
+.cardItem{
+  border:1px solid rgba(255,255,255,.08);
+  background: rgba(15,23,42,.65);
+  border-radius:16px;
+  padding:14px;
+}
+.cardTop{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+.cardName{ font-weight:700; }
+.cardId{ color:var(--muted); font-size:12px; margin-top:4px; word-break:break-all; }
+.cardActions{ margin-top:12px; display:flex; gap:10px; }
+.cardActions form{ margin:0; flex:1; }
+
+/* Show cards on small screens, hide table */
+@media (max-width: 760px){
+  table{ display:none; }
+  .cards{ display:flex; flex-direction:column; }
+}
 
 </style></head>
 <body><div class="wrap">
@@ -1552,6 +1571,23 @@ app.get("/servers", requireLogin, async (req, res) => {
       </tr>`
       )
       .join("");
+  const cards = filtered.map((g) => `
+  <div class="cardItem">
+    <div class="cardTop">
+      <div>
+        <div class="cardName">${esc(g.name)}</div>
+        <div class="cardId">${esc(g.id)}</div>
+      </div>
+    </div>
+    <div class="cardActions">
+      <form method="POST" action="/servers/select">
+        <input type="hidden" name="guildId" value="${esc(g.id)}"/>
+        <input type="hidden" name="guildName" value="${esc(g.name)}"/>
+        <button type="submit">Manage</button>
+      </form>
+    </div>
+  </div>
+`).join("");
 
     const note =
       filtered.length === 0
@@ -1572,13 +1608,16 @@ app.get("/servers", requireLogin, async (req, res) => {
   <p class="muted">Showing only servers you manage <b>AND</b> where the bot is installed.</p>
   ${note}
 
-  <div class="tableWrap">
-    <table>
-      <thead><tr><th>Server</th><th>Action</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
-    </table>
+  <table>
+    <thead><tr><th>Server</th><th>Action</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
+  </table>
+
+  <div class="cards">
+    ${cards || `<div class="warn">No servers to show.</div>`}
   </div>
 `
+
 ,
       })
     );
@@ -2678,6 +2717,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
