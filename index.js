@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS scrims (
   confirm_message_id TEXT,
 
   team_role_id TEXT,
-
+  ban_role_id TEXT,
   registration_open INTEGER NOT NULL DEFAULT 0,
   confirm_open INTEGER NOT NULL DEFAULT 0,
 
@@ -2314,6 +2314,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
