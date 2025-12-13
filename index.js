@@ -743,28 +743,412 @@ function esc(s = "") {
     .replaceAll("'", "&#039;");
 }
 
-function renderLanding({ title = "DarkSide", user = null, error = "" }) {
+function renderLanding({ title = "DarkSideORG — Login", user = null, error = "" }) {
   const isAuthed = !!user;
-  // (your landing html unchanged – kept short here)
-  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${esc(
-    title
-  )}</title></head><body style="font-family:system-ui;background:#0b1020;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:20px">
-  <div style="max-width:820px;width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:18px">
-    <h1 style="margin:0 0 8px;letter-spacing:.12em;text-transform:uppercase">DarkSideORG</h1>
-    <p style="margin:0 0 14px;opacity:.8">Scrims Panel • Staff Only</p>
-    ${
-      isAuthed
-        ? `<div style="display:flex;gap:10px;flex-wrap:wrap">
-            <a href="/panel" style="padding:10px 14px;border-radius:999px;background:#ffb300;color:#111;text-decoration:none;font-weight:700">Go to Panel</a>
-            <form method="POST" action="/logout" style="margin:0">
-              <button type="submit" style="padding:10px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#fff">Logout</button>
-            </form>
-          </div>
-          <div style="margin-top:10px;opacity:.8">Logged in as <b>${esc(user.username)}</b> (ID ${esc(user.id)})</div>`
-        : `<div>${error ? `<div style="color:#ffb3b3;margin-bottom:10px">${esc(error)}</div>` : ""}</div>
-           <a href="/auth/discord" style="display:inline-block;padding:10px 14px;border-radius:999px;background:#ffb300;color:#111;text-decoration:none;font-weight:700">Login with Discord</a>`
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>${esc(title)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg1:#020617;
+      --bg2:#050509;
+      --card:rgba(18,20,31,.92);
+      --border:rgba(255,255,255,.08);
+      --text:#f5f5f7;
+      --muted:#9ca3af;
+      --accent:#ffb300;
+      --accent2:#38bdf8;
+      --danger:#ff4b4b;
+      --ok:#4caf50;
     }
-  </div></body></html>`;
+    *{box-sizing:border-box}
+    body{
+      margin:0; min-height:100vh; color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;
+      background:
+        radial-gradient(circle at top,#20263a 0,transparent 55%),
+        radial-gradient(circle at bottom,#111827 0,#020617 65%);
+      overflow:hidden;
+    }
+
+    /* animated aura like your other pages */
+    body::before{
+      content:"";
+      position:fixed; inset:-40px;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(255,179,0,.14), transparent 60%),
+        radial-gradient(circle at 80% 70%, rgba(56,189,248,.10), transparent 60%);
+      animation: drift 18s ease-in-out infinite;
+      z-index:-2;
+    }
+    @keyframes drift{
+      0%,100%{transform:translate(0,0)}
+      50%{transform:translate(-14px,10px)}
+    }
+
+    .wrap{
+      width:100%;
+      max-width:1100px;
+      margin:0 auto;
+      padding:28px 22px;
+      display:grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap:18px;
+      align-items:stretch;
+      min-height:100vh;
+    }
+    @media (max-width: 980px){
+      .wrap{grid-template-columns:1fr; padding:22px 16px}
+    }
+
+    .card{
+      position:relative;
+      border-radius:18px;
+      background:var(--card);
+      border:1px solid var(--border);
+      box-shadow:0 25px 40px rgba(0,0,0,.7);
+      overflow:hidden;
+    }
+    .card::before{
+      content:"";
+      position:absolute; inset:-1px;
+      border-radius:inherit;
+      background: linear-gradient(135deg, rgba(255,179,0,.30), rgba(56,189,248,.18));
+      opacity:.7;
+      -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+      -webkit-mask-composite:xor;
+      mask-composite: exclude;
+      padding:1px;
+      pointer-events:none;
+    }
+
+    .main{padding:22px}
+    .side{padding:22px; display:flex; flex-direction:column; justify-content:space-between}
+
+    .badge{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:6px 12px;
+      border-radius:999px;
+      background: rgba(15,23,42,.85);
+      border:1px solid rgba(148,163,184,.35);
+      color:var(--muted);
+      font-size:11px;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+    }
+    .badgeDot{
+      width:8px;height:8px;border-radius:50%;
+      background:var(--accent);
+      box-shadow:0 0 12px rgba(255,179,0,.8);
+    }
+
+    .brandRow{
+      margin-top:14px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .brand{
+      font-family:Orbitron;
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      font-size:30px;
+      margin:0;
+      line-height:1.05;
+    }
+    .chip{
+      font-size:11px;
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      color:var(--muted);
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(15,23,42,.65);
+      padding:8px 10px;
+      border-radius:999px;
+      white-space:nowrap;
+    }
+
+    .subtitle{
+      margin:8px 0 0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.6;
+    }
+
+    .hero{
+      margin-top:16px;
+      padding:14px 14px;
+      border-radius:16px;
+      background: rgba(15,23,42,.55);
+      border:1px solid rgba(148,163,184,.18);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .heroLeft{
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+    .logoWrap{
+      width:54px;height:54px;border-radius:16px;
+      border:1px solid rgba(148,163,184,.28);
+      background: rgba(2,6,23,.55);
+      display:flex;align-items:center;justify-content:center;
+      position:relative;
+      overflow:hidden;
+    }
+    .logoWrap::after{
+      content:"";
+      position:absolute; inset:-20px;
+      background: radial-gradient(circle, rgba(255,179,0,.28), transparent 60%);
+      filter: blur(18px);
+      animation:pulse 6s ease-in-out infinite;
+      opacity:.7;
+    }
+    @keyframes pulse{0%,100%{transform:scale(1);opacity:.35}50%{transform:scale(1.2);opacity:.8}}
+    .logoText{
+      position:relative;
+      font-family:Orbitron;
+      letter-spacing:.12em;
+      font-size:18px;
+    }
+    .heroTitle{
+      font-family:Orbitron;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      font-size:14px;
+      margin:0;
+    }
+    .heroSub{
+      margin:4px 0 0;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .btn{
+      width:100%;
+      padding:12px 14px;
+      border-radius:999px;
+      border:none;
+      cursor:pointer;
+      font-family:Orbitron,system-ui;
+      letter-spacing:.15em;
+      text-transform:uppercase;
+      background: linear-gradient(135deg, #fde68a, #f97316, #ea580c);
+      color:#0b0b10;
+      box-shadow: 0 14px 30px rgba(0,0,0,.75), 0 0 26px rgba(249,115,22,.55);
+      transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      text-decoration:none;
+      margin-top:14px;
+    }
+    .btn:hover{ transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 18px 36px rgba(0,0,0,.85), 0 0 32px rgba(249,115,22,.75); }
+    .btn:active{ transform: scale(.98); filter: brightness(.98); }
+
+    .btn2{
+      width:100%;
+      padding:12px 14px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.35);
+      background: rgba(15,23,42,.82);
+      color:var(--text);
+      cursor:pointer;
+      font-family:Orbitron,system-ui;
+      letter-spacing:.15em;
+      text-transform:uppercase;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      text-decoration:none;
+      transition: transform .12s ease, border-color .12s ease;
+      margin-top:10px;
+    }
+    .btn2:hover{ transform: translateY(-1px); border-color: rgba(255,179,0,.55); }
+    .btn2:active{ transform: scale(.99); }
+
+    .grid{
+      margin-top:16px;
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    @media (max-width: 520px){ .grid{grid-template-columns:1fr} }
+
+    .miniCard{
+      padding:12px;
+      border-radius:16px;
+      background: rgba(15,23,42,.55);
+      border:1px solid rgba(148,163,184,.18);
+    }
+    .miniTop{
+      display:flex; align-items:center; gap:10px;
+      font-family:Orbitron; letter-spacing:.10em;
+      text-transform:uppercase;
+      font-size:12px;
+    }
+    .icon{
+      width:28px;height:28px;border-radius:10px;
+      display:flex;align-items:center;justify-content:center;
+      border:1px solid rgba(148,163,184,.25);
+      background: rgba(2,6,23,.45);
+    }
+    .miniSub{margin:8px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+
+    .error{
+      margin-top:12px;
+      padding:10px 12px;
+      border-radius:14px;
+      background: rgba(239,68,68,.12);
+      border:1px solid rgba(239,68,68,.45);
+      color:#fecaca;
+      font-size:13px;
+    }
+
+    .footer{
+      margin-top:14px;
+      font-size:11px;
+      color: rgba(156,163,175,.9);
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    code{
+      font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+      font-size:11px;
+      background: rgba(15,23,42,.85);
+      border: 1px solid rgba(148,163,184,.25);
+      padding:2px 6px;
+      border-radius:9px;
+      color: #cbd5e1;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="main">
+        <div class="badge"><span class="badgeDot"></span> DARKSIDE ACCESS</div>
+
+        <div class="brandRow">
+          <h1 class="brand">DARKSIDE ORG</h1>
+          <div class="chip">SCRIMS PANEL</div>
+        </div>
+
+        <p class="subtitle">
+          One place to run your scrims — registrations, confirms, slot posting (GIF templates), roles, and results.
+        </p>
+
+        <div class="hero">
+          <div class="heroLeft">
+            <div class="logoWrap"><div class="logoText">DS</div></div>
+            <div>
+              <p class="heroTitle">Operator Login</p>
+              <p class="heroSub">Discord OAuth2 • secure session • staff only</p>
+            </div>
+          </div>
+          <div style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.10em">
+            ${isAuthed ? "🟢 AUTHENTICATED" : "🟡 READY"}
+          </div>
+        </div>
+
+        ${error ? `<div class="error">${esc(error)}</div>` : ""}
+
+        ${
+          isAuthed
+            ? `
+              <a class="btn" href="/panel">GO TO PANEL</a>
+              <form method="POST" action="/logout" style="margin:0">
+                <button class="btn2" type="submit">LOGOUT</button>
+              </form>
+
+              <div class="footer">
+                <div>Logged in as <b>${esc(user.username)}</b> (ID: <code>${esc(user.id)}</code>)</div>
+                <div>Tip: Open <code>/scrims</code> after selecting server</div>
+              </div>
+            `
+            : `
+              <a class="btn" href="/auth/discord" id="loginBtn">ENTER DARKSIDE</a>
+
+              <div class="footer">
+                <div>✔ Manage Server/Admin required</div>
+                <div>✔ Bot must be installed</div>
+                <div>✔ No passwords stored</div>
+              </div>
+            `
+        }
+
+        <div class="grid">
+          <div class="miniCard">
+            <div class="miniTop"><span class="icon">📝</span> Registration</div>
+            <div class="miniSub">Post a clean embed + button to generate private register links.</div>
+          </div>
+          <div class="miniCard">
+            <div class="miniTop"><span class="icon">✅</span> Confirms</div>
+            <div class="miniSub">Confirm/drop flow with locked status + auto updates.</div>
+          </div>
+          <div class="miniCard">
+            <div class="miniTop"><span class="icon">🖼️</span> Slot GIFs</div>
+            <div class="miniSub">Pick a template, render slot gifs, and post them all (spam mode optional).</div>
+          </div>
+          <div class="miniCard">
+            <div class="miniTop"><span class="icon">📊</span> Results</div>
+            <div class="miniSub">Enter G1–G4 points and keep everything in one dashboard.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="side">
+        <div>
+          <div class="badge"><span class="badgeDot"></span> QUICK NOTES</div>
+          <div style="margin-top:14px;color:var(--muted);font-size:13px;line-height:1.7">
+            <div>• Panel URL: <code>/panel</code></div>
+            <div>• Servers: <code>/servers</code></div>
+            <div>• Scrims: <code>/scrims</code></div>
+            <div style="margin-top:10px">
+              If you don’t see your server after login, make sure:
+              <br/>1) you have Manage Server/Admin
+              <br/>2) the bot is installed in that server
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;color:rgba(156,163,175,.9);font-size:11px">
+          DarkSideORG • secured by Discord OAuth2
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // prevent double click spam
+    const btn = document.getElementById("loginBtn");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        btn.style.pointerEvents = "none";
+        btn.textContent = "REDIRECTING...";
+      });
+    }
+  </script>
+</body>
+</html>`;
 }
 
 function renderLayout({ title, user, selectedGuild, active, body }) {
@@ -1786,6 +2170,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
