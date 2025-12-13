@@ -2086,7 +2086,12 @@ app.get("/register/:scrimId", (req, res) => {
       </div>
     `));
   }
-
+if (q.isBanned.get(scrim.guild_id, userId)) {
+  return res.send(renderRegisterPage("Banned", `
+    <h1>Access Blocked</h1>
+    <div class="boxBad">You are banned from registering in this server.</div>
+  `));
+}
   res.send(renderRegisterPage("Register", `
     <h1>${esc(scrim.name)}</h1>
     <div class="muted">Discord ID: <code>${esc(userId)}</code></div>
@@ -2168,6 +2173,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
