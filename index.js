@@ -2280,6 +2280,31 @@ app.get("/register/:scrimId", (req, res) => {
   if (!scrim) return res.send(renderRegisterPage("Invalid", `<h1>Invalid Scrim</h1><div class="boxBad">Scrim not found.</div>`));
   if (!userId) return res.send(renderRegisterPage("Invalid", `<h1>Invalid Link</h1><div class="boxBad">Missing user id.</div>`));
   if (!scrim.registration_open) return res.send(renderRegisterPage("Closed", `<h1>Closed</h1><div class="boxBad">Registration is closed.</div>`));
+  // ban check (DB)
+const ban = q.banByUser.get(scrim.guild_id, userId);
+if (ban && isBanActive(ban)) {
+  return res.send(renderRegisterPage("Banned", `
+    <h1>Access Blocked</h1>
+    <div class="boxBad">
+      You are banned from registering in this server.<br/>
+      ${ban.expires_at ? `Expires: <b>${esc(ban.expires_at)}</b>` : `<b>Permanent ban</b>`}
+    </div>
+  `));
+}
+
+// ban role check (Discord)
+if (scrim.ban_role_id) {
+  try {
+    const guild = await discord.guilds.fetch(scrim.guild_id);
+    const mem = await guild.members.fetch(userId);
+    if (mem.roles.cache.has(scrim.ban_role_id)) {
+      return res.send(renderRegisterPage("Banned", `
+        <h1>Access Blocked</h1>
+        <div class="boxBad">You have the ban role and cannot register.</div>
+      `));
+    }
+  } catch {}
+}
 
   const existing = q.teamByUser.get(scrimId, userId);
   if (existing) {
@@ -2329,6 +2354,31 @@ app.post("/register/:scrimId", upload.single("teamLogo"), async (req, res) => {
   const teamName = String(req.body.teamName || "").trim();
   const teamTag = String(req.body.teamTag || "").trim().toUpperCase().slice(0, 6);
   const file = req.file;
+  // ban check (DB)
+const ban = q.banByUser.get(scrim.guild_id, userId);
+if (ban && isBanActive(ban)) {
+  return res.send(renderRegisterPage("Banned", `
+    <h1>Access Blocked</h1>
+    <div class="boxBad">
+      You are banned from registering in this server.<br/>
+      ${ban.expires_at ? `Expires: <b>${esc(ban.expires_at)}</b>` : `<b>Permanent ban</b>`}
+    </div>
+  `));
+}
+
+// ban role check (Discord)
+if (scrim.ban_role_id) {
+  try {
+    const guild = await discord.guilds.fetch(scrim.guild_id);
+    const mem = await guild.members.fetch(userId);
+    if (mem.roles.cache.has(scrim.ban_role_id)) {
+      return res.send(renderRegisterPage("Banned", `
+        <h1>Access Blocked</h1>
+        <div class="boxBad">You have the ban role and cannot register.</div>
+      `));
+    }
+  } catch {}
+}
 
   if (!userId || !teamName || !teamTag || !file) {
     return res.send(renderRegisterPage("Error", `<h1>Error</h1><div class="boxBad">Missing data.</div>`));
@@ -2371,6 +2421,90 @@ app.post("/register/:scrimId", upload.single("teamLogo"), async (req, res) => {
     </div>
   `));
 });
+app.get("/scrims/:id/settings", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  res.send(renderLayout({
+    title: `Settings • ${scrim.name}`,
+    user: req.session.user,
+    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+    active: "scrims",
+    body: `
+      <h2 class="h">${esc(scrim.name)} — Settings</h2>
+      <p class="muted">Set channels/roles used by the bot for this scrim.</p>
+
+      <form method="POST" action="/scrims/${scrimId}/settings">
+        <label>Registration Channel ID</label>
+        <input name="registrationChannelId" value="${esc(scrim.registration_channel_id || "")}" placeholder="123..." />
+
+        <label>List Channel ID</label>
+        <input name="listChannelId" value="${esc(scrim.list_channel_id || "")}" placeholder="123..." />
+
+        <label>Confirm Channel ID</label>
+        <input name="confirmChannelId" value="${esc(scrim.confirm_channel_id || "")}" placeholder="123..." />
+
+        <label>Team Role ID (auto give on register)</label>
+        <input name="teamRoleId" value="${esc(scrim.team_role_id || "")}" placeholder="123..." />
+
+        <label>Ban Role ID (given on ban, blocks register)</label>
+        <input name="banRoleId" value="${esc(scrim.ban_role_id || "")}" placeholder="123..." />
+
+        <div class="row">
+          <div><label>Reg Open Time (text)</label><input name="openAt" value="${esc(scrim.open_at || "")}" placeholder="18:00 CET"/></div>
+          <div><label>Reg Close Time (text)</label><input name="closeAt" value="${esc(scrim.close_at || "")}" placeholder="18:15 CET"/></div>
+        </div>
+
+        <div class="row">
+          <div><label>Confirm Open Time</label><input name="confirmOpenAt" value="${esc(scrim.confirm_open_at || "")}" placeholder="18:20 CET"/></div>
+          <div><label>Confirm Close Time</label><input name="confirmCloseAt" value="${esc(scrim.confirm_close_at || "")}" placeholder="18:30 CET"/></div>
+        </div>
+
+        <div style="margin-top:12px" class="row">
+          <button type="submit">Save Settings</button>
+          <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}">Back</a>
+        </div>
+      </form>
+    `
+  }));
+});
+app.post("/scrims/:id/settings", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  const registrationChannelId = String(req.body.registrationChannelId || "").trim() || null;
+  const listChannelId = String(req.body.listChannelId || "").trim() || null;
+  const confirmChannelId = String(req.body.confirmChannelId || "").trim() || null;
+  const teamRoleId = String(req.body.teamRoleId || "").trim() || null;
+  const banRoleId = String(req.body.banRoleId || "").trim() || null;
+
+  const openAt = String(req.body.openAt || "").trim() || null;
+  const closeAt = String(req.body.closeAt || "").trim() || null;
+  const confirmOpenAt = String(req.body.confirmOpenAt || "").trim() || null;
+  const confirmCloseAt = String(req.body.confirmCloseAt || "").trim() || null;
+
+  q.updateScrimSettings.run(
+    registrationChannelId,
+    listChannelId,
+    confirmChannelId,
+    teamRoleId,
+    banRoleId,
+    openAt,
+    closeAt,
+    confirmOpenAt,
+    confirmCloseAt,
+    scrimId,
+    guildId
+  );
+
+  res.redirect(`/scrims/${scrimId}`);
+});
 
 // HEALTH
 app.get("/health", (req, res) => res.json({ ok: true }));
@@ -2379,6 +2513,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
