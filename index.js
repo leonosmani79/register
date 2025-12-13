@@ -1658,56 +1658,98 @@ app.post("/scrims/new", requireLogin, (req, res) => {
 });
 
 // ✅ MANAGE SCRIM PAGE (THIS FIXES /scrims/:id)
-app.get("/scrims/:id", requireLogin, (req, res) => {
+app.get("/scrims/:id", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
-  if (!guildId) return res.redirect("/servers");
-
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
+  const teams = q.teamsByScrim.all(scrimId);
+  const totalSlots = scrim.max_slot - scrim.min_slot + 1;
+
+  const rows = teams.map((t) => `
+    <tr>
+      <td><b>#${t.slot}</b></td>
+      <td>
+        <b>${esc(t.team_name)}</b>
+        <div class="muted">[${esc(t.team_tag)}] • TeamID: ${t.id}</div>
+      </td>
+      <td><code>${esc(t.owner_user_id)}</code></td>
+      <td>${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</td>
+      <td style="width:360px">
+        <div class="row">
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept" style="margin:0">
+            <button class="btn2" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
+          </form>
+
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete" style="margin:0"
+                onsubmit="return confirm('Delete slot #${t.slot} for ${esc(t.team_tag)}?')">
+            <button class="btn2" type="submit">Delete</button>
+          </form>
+
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
+                onsubmit="return confirm('Ban this user from registering again?')">
+            <input type="hidden" name="reason" value="Banned by staff"/>
+            <button class="btn2" type="submit">Ban</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+  `).join("");
+
+  // optional: show bans list
+  const bans = q.bansByGuild.all(guildId);
+  const banRows = bans.map((b) => `
+    <tr>
+      <td><code>${esc(b.user_id)}</code></td>
+      <td class="muted">${esc(b.reason || "—")}</td>
+      <td class="muted">${esc(b.created_at)}</td>
+      <td style="width:160px">
+        <form method="POST" action="/scrims/${scrimId}/unban" style="margin:0">
+          <input type="hidden" name="userId" value="${esc(b.user_id)}"/>
+          <button class="btn2" type="submit">Unban</button>
+        </form>
+      </td>
+    </tr>
+  `).join("");
+
   res.send(renderLayout({
-    title: `Scrim ${scrim.id}`,
+    title: `Manage • ${scrim.name}`,
     user: req.session.user,
     selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
     active: "scrims",
     body: `
-      <h2 class="h">${esc(scrim.name)}</h2>
-      <p class="muted">Choose what you want to manage.</p>
+      <h2 class="h">${esc(scrim.name)} — Manage Slots</h2>
+      <p class="muted">Teams: <b>${teams.length}/${totalSlots}</b> • Reg: <b>${scrim.registration_open ? "OPEN" : "CLOSED"}</b> • Confirms: <b>${scrim.confirm_open ? "OPEN" : "CLOSED"}</b></p>
 
-      <div class="grid4">
-        <a class="tile" href="/scrims/${scrimId}/settings">
-          <div class="ico">⚙️</div>
-          <div><p class="t1">Settings</p><p class="t2">Channels, role, times, limits</p></div>
-        </a>
-
-        <a class="tile" href="/scrims/${scrimId}/messages">
-          <div class="ico">📨</div>
-          <div><p class="t1">Messages</p><p class="t2">Post Reg/List/Confirm embeds</p></div>
-        </a>
-
-        <a class="tile" href="/scrims/${scrimId}/slots">
-          <div class="ico">🎞️</div>
-          <div><p class="t1">Slots</p><p class="t2">Template, spam mode, post all GIF slots</p></div>
-        </a>
-
-        <a class="tile" href="/scrims/${scrimId}/results">
-          <div class="ico">🏆</div>
-          <div><p class="t1">Results</p><p class="t2">Enter G1–G4 points</p></div>
-        </a>
+      <div class="row" style="margin:12px 0">
+        <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0"><button class="btn2" type="submit">Post Reg</button></form>
+        <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post List</button></form>
+        <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post Confirm</button></form>
+        <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}/results">Results</a>
       </div>
 
-      <div style="margin-top:14px" class="smallrow">
-        <form method="POST" action="/scrims/${scrimId}/toggleReg" style="margin:0">
-          <button class="btn2" type="submit">${scrim.registration_open ? "Close Registration" : "Open Registration"}</button>
-        </form>
-        <form method="POST" action="/scrims/${scrimId}/toggleConfirm" style="margin:0">
-          <button class="btn2" type="submit">${scrim.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
-        </form>
-      </div>
+      <table>
+        <thead>
+          <tr><th>Slot</th><th>Team</th><th>Owner</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          ${rows || `<tr><td colspan="5">No teams registered yet.</td></tr>`}
+        </tbody>
+      </table>
+
+      <hr style="margin:18px 0;opacity:.2"/>
+
+      <h3 class="h" style="font-size:14px">Bans</h3>
+      <table>
+        <thead><tr><th>User</th><th>Reason</th><th>When</th><th>Action</th></tr></thead>
+        <tbody>${banRows || `<tr><td colspan="4">No bans.</td></tr>`}</tbody>
+      </table>
     `
   }));
 });
+
 app.get("/scrims/:id/messages", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
   if (!guildId) return res.redirect("/servers");
@@ -2173,6 +2215,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
