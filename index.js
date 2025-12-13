@@ -1354,6 +1354,53 @@ th{color:var(--muted)}
   flex:1;
   min-width:200px;
 }
+.table-wrap{width:100%; overflow:auto}
+
+/* Mobile cards */
+@media (max-width: 780px){
+  table{display:none !important;}
+
+  .scrimCards{display:grid; gap:12px;}
+  .scrimCard{
+    background: rgba(15,23,42,.70);
+    border:1px solid rgba(148,163,184,.18);
+    border-radius:16px;
+    padding:14px;
+  }
+  .scrimName{
+    font-family:Orbitron;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    font-size:14px;
+    line-height:1.2;
+  }
+  .scrimId{color:var(--muted); font-size:12px; margin-top:6px}
+  .chips{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+  .chip{
+    font-size:12px;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,.25);
+    background: rgba(2,6,23,.35);
+  }
+  .chip.ok{border-color: rgba(34,197,94,.45)}
+  .chip.bad{border-color: rgba(239,68,68,.45)}
+
+  /* Buttons on mobile: 1 column (big) */
+  .cardActions{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:10px;
+    margin-top:12px
+  }
+  .cardActions form{margin:0}
+  .btn2, button.btn2{width:100% !important}
+}
+
+@media (min-width: 781px){
+  .scrimCards{display:none;}
+}
+
 </style></head>
 <body><div class="wrap">
 <div class="top">
@@ -2582,6 +2629,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
