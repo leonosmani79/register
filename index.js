@@ -229,6 +229,15 @@ CREATE TABLE IF NOT EXISTS results (
   UNIQUE(scrim_id, slot),
   FOREIGN KEY(scrim_id) REFERENCES scrims(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS bans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(guild_id, user_id)
+);
+
 `);
 
 // ✅ migrate columns (NO sqlite3 CLI needed)
@@ -2135,6 +2144,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
