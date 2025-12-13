@@ -1889,18 +1889,20 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
           </form>
 
           <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
-                onsubmit="return confirm('Ban this user from registering again?')">
-            <select name="duration" style="width:110px;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:#f5f5f7">
-              <option value="0">PERMA</option>
-              <option value="1h">1H</option>
-              <option value="6h">6H</option>
-              <option value="1d">1D</option>
-              <option value="7d">7D</option>
-              <option value="30d">30D</option>
-            </select>
-            <input name="reason" placeholder="reason..." style="width:140px;margin-top:6px"/>
-            <button class="btn2" type="submit" style="margin-top:6px">Ban</button>
-          </form>
+      onsubmit="return confirm('Ban this user?')">
+
+  <input name="reason" placeholder="Reason (optional)" value="Banned by staff" style="width:180px"/>
+
+  <select name="mode" style="width:110px">
+    <option value="perm">Perm</option>
+    <option value="days" selected>Days</option>
+  </select>
+
+  <input name="days" type="number" min="1" max="365" value="7" style="width:90px" />
+
+  <button class="btn2" type="submit">Ban</button>
+</form>
+
         </div>
       </td>
     </tr>
@@ -2305,43 +2307,74 @@ app.post("/scrims/:id/team/:teamId/ban", requireLogin, async (req, res) => {
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  const team = db.prepare("SELECT * FROM teams WHERE id=? AND scrim_id=?").get(teamId, scrimId);
-  if (!team) return res.redirect(`/scrims/${scrimId}`);
+  const team = db.prepare("SELECT * FROM teams WHERE id = ? AND scrim_id = ?").get(teamId, scrimId);
+  if (!team) return res.status(404).send("Team not found");
 
-  const reason = String(req.body.reason || "Banned by staff").slice(0, 200);
-  const ms = parseDurationToMs(req.body.duration);
-  if (ms === null) return res.status(400).send("Bad duration");
+  const reason = String(req.body.reason || "Banned by staff").trim();
+  const mode = String(req.body.mode || "perm").trim();
 
-  const expiresAt = ms === 0 ? null : new Date(Date.now() + ms).toISOString();
-
-  // save ban
-  q.banUpsert.run(guildId, team.owner_user_id, reason, expiresAt);
-
-  // remove team from scrim
-  db.prepare("DELETE FROM teams WHERE id=? AND scrim_id=?").run(teamId, scrimId);
-
-  // remove team role
-  if (scrim.team_role_id) {
-    try {
-      const guild = await discord.guilds.fetch(scrim.guild_id);
-      const mem = await guild.members.fetch(team.owner_user_id);
-      await mem.roles.remove(scrim.team_role_id);
-    } catch {}
+  let expiresAt = null;
+  if (mode === "days") {
+    const days = Math.max(1, Math.min(365, Number(req.body.days || 0)));
+    const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    expiresAt = d.toISOString();
   }
 
-  // give ban role
-  if (scrim.ban_role_id) {
+  // save ban
+  q.upsertBan.run(scrim.guild_id, team.owner_user_id, reason, expiresAt);
+
+  // give ban role (optional)
+  const guild = await discord.guilds.fetch(scrim.guild_id).catch(() => null);
+  if (guild && scrim.ban_role_id) {
     try {
-      const guild = await discord.guilds.fetch(scrim.guild_id);
       const mem = await guild.members.fetch(team.owner_user_id);
       await mem.roles.add(scrim.ban_role_id);
     } catch {}
   }
 
+  // ban log channel (optional)
+  if (guild && scrim.ban_channel_id) {
+    try {
+      const ch = await guild.channels.fetch(scrim.ban_channel_id).catch(() => null);
+      if (ch && ch.type === ChannelType.GuildText) {
+        const logoPath = team.logo_filename ? path.join(uploadDir, team.logo_filename) : null;
+        const hasLogo = logoPath && fs.existsSync(logoPath);
+
+        const embed = new EmbedBuilder()
+          .setTitle("⛔ Team Banned")
+          .setColor(0xef4444)
+          .addFields(
+            { name: "Team", value: `**${team.team_name}** [**${team.team_tag}**]`, inline: false },
+            { name: "User ID", value: `\`${team.owner_user_id}\``, inline: true },
+            { name: "Reason", value: reason || "—", inline: true },
+            { name: "Duration", value: expiresAt ? banTimeLeft(expiresAt) : "Permanent", inline: true }
+          )
+          .setFooter({ text: `DarkSide Scrims • Scrim ${scrim.id} • Slot #${team.slot}` })
+          .setTimestamp(new Date());
+
+        const payload = { embeds: [embed] };
+
+        if (hasLogo) {
+          payload.files = [{ attachment: logoPath, name: "teamlogo.png" }];
+          embed.setThumbnail("attachment://teamlogo.png");
+        }
+
+        await ch.send(payload);
+      }
+    } catch (e) {
+      console.error("ban log send error:", e);
+    }
+  }
+
+  // remove their slot after ban (recommended)
+  q.removeTeamByUser.run(scrimId, team.owner_user_id);
+
   await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
   await updateConfirmEmbed(q.scrimById.get(scrimId)).catch(() => {});
-  res.redirect(`/scrims/${scrimId}`);
+
+  return res.redirect(`/scrims/${scrimId}`);
 });
+
 
 app.post("/scrims/:id/unban", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
