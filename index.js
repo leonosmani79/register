@@ -1620,12 +1620,47 @@ app.get("/scrims", requireLogin, (req, res) => {
       selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
       active: "scrims",
       body: `
-        <h2 class="h">Scrims</h2>
-        <table>
-          <thead><tr><th>Scrim</th><th>Reg</th><th>Confirms</th><th>Actions</th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="4">No scrims. Create one.</td></tr>`}</tbody>
-        </table>
-      `,
+  <h2 class="h">Scrims</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Scrim</th><th>Reg</th><th>Confirms</th><th>Actions</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4">No scrims. Create one.</td></tr>`}</tbody>
+    </table>
+  </div>
+
+  <div class="scrimCards">
+    ${
+      scrims.map((s) => `
+        <div class="scrimCard">
+          <div class="scrimName">${esc(s.name)}</div>
+          <div class="scrimId">Scrim ID: ${s.id}</div>
+
+          <div class="chips">
+            <div class="chip ${s.registration_open ? "ok" : "bad"}">Reg: ${s.registration_open ? "OPEN" : "CLOSED"}</div>
+            <div class="chip ${s.confirm_open ? "ok" : "bad"}">Confirms: ${s.confirm_open ? "OPEN" : "CLOSED"}</div>
+          </div>
+
+          <div class="cardActions">
+            <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px"
+               href="/scrims/${s.id}">Manage</a>
+
+            <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px"
+               href="/scrims/${s.id}/results">Results</a>
+
+            <form method="POST" action="/scrims/${s.id}/toggleReg">
+              <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
+            </form>
+
+            <form method="POST" action="/scrims/${s.id}/toggleConfirm">
+              <button class="btn2" type="submit">${s.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
+            </form>
+          </div>
+        </div>
+      `).join("")
+    }
+  </div>
+`,
     })
   );
 });
@@ -2629,6 +2664,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
