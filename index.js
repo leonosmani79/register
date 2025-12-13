@@ -2343,7 +2343,6 @@ if (ban && isBanActive(ban)) {
 // ban role check (Discord)
 if (scrim.ban_role_id) {
   try {
-    const guild = await discord.guilds.fetch(scrim.guild_id);
     const mem = await guild.members.fetch(userId);
     if (mem.roles.cache.has(scrim.ban_role_id)) {
       return res.send(renderRegisterPage("Banned", `
@@ -2353,7 +2352,7 @@ if (scrim.ban_role_id) {
     }
   } catch {}
 }
-
+    const guild = await discord.guilds.fetch(scrim.guild_id);
   const existing = q.teamByUser.get(scrimId, userId);
   if (existing) {
     return res.send(renderRegisterPage("Already", `
@@ -2561,6 +2560,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
