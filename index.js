@@ -287,6 +287,30 @@ const q = {
       confirm_close_at = ?
     WHERE id = ? AND guild_id = ?
   `),
+  teamsByScrimFull: db.prepare(`
+  SELECT t.*, s.guild_id
+  FROM teams t
+  JOIN scrims s ON s.id = t.scrim_id
+  WHERE t.scrim_id = ?
+  ORDER BY t.slot ASC
+`),
+
+setConfirmedByTeamId: db.prepare(`
+  UPDATE teams SET confirmed = 1
+  WHERE id = ? AND scrim_id = ?
+`),
+
+banUpsert: db.prepare(`
+  INSERT INTO bans (guild_id, user_id, reason)
+  VALUES (?, ?, ?)
+  ON CONFLICT(guild_id, user_id) DO UPDATE SET
+    reason=excluded.reason
+`),
+
+isBanned: db.prepare(`SELECT 1 FROM bans WHERE guild_id = ? AND user_id = ?`),
+bansByGuild: db.prepare(`SELECT * FROM bans WHERE guild_id = ? ORDER BY id DESC`),
+unban: db.prepare(`DELETE FROM bans WHERE guild_id = ? AND user_id = ?`),
+
 
   setRegOpen: db.prepare("UPDATE scrims SET registration_open = ? WHERE id = ? AND guild_id = ?"),
   setConfirmOpen: db.prepare("UPDATE scrims SET confirm_open = ? WHERE id = ? AND guild_id = ?"),
@@ -2144,6 +2168,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
