@@ -2092,14 +2092,24 @@ app.post("/scrims/:id/team/:teamId/accept", requireLogin, async (req, res) => {
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  const team = db.prepare("SELECT * FROM teams WHERE id = ? AND scrim_id = ?").get(teamId, scrimId);
+  const team = db.prepare("SELECT * FROM teams WHERE id=? AND scrim_id=?").get(teamId, scrimId);
   if (!team) return res.status(404).send("Team not found");
 
-  q.setConfirmedByTeamId.run(teamId, scrimId);
+  // mark confirmed
+  db.prepare("UPDATE teams SET confirmed=1 WHERE id=? AND scrim_id=?").run(teamId, scrimId);
+
+  // give role
+  if (scrim.team_role_id) {
+    try {
+      const guild = await discord.guilds.fetch(scrim.guild_id);
+      const mem = await guild.members.fetch(team.owner_user_id);
+      await mem.roles.add(scrim.team_role_id);
+    } catch {}
+  }
 
   await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
   await updateConfirmEmbed(q.scrimById.get(scrimId)).catch(() => {});
-  return res.redirect(`/scrims/${scrimId}`);
+  res.redirect(`/scrims/${scrimId}`);
 });
 
 app.post("/scrims/:id/team/:teamId/delete", requireLogin, async (req, res) => {
@@ -2110,10 +2120,12 @@ app.post("/scrims/:id/team/:teamId/delete", requireLogin, async (req, res) => {
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  const team = db.prepare("SELECT * FROM teams WHERE id = ? AND scrim_id = ?").get(teamId, scrimId);
-  if (!team) return res.status(404).send("Team not found");
+  const team = db.prepare("SELECT * FROM teams WHERE id=? AND scrim_id=?").get(teamId, scrimId);
+  if (!team) return res.redirect(`/scrims/${scrimId}`);
 
-  // remove role if set
+  db.prepare("DELETE FROM teams WHERE id=? AND scrim_id=?").run(teamId, scrimId);
+
+  // remove role
   if (scrim.team_role_id) {
     try {
       const guild = await discord.guilds.fetch(scrim.guild_id);
@@ -2122,12 +2134,19 @@ app.post("/scrims/:id/team/:teamId/delete", requireLogin, async (req, res) => {
     } catch {}
   }
 
-  db.prepare("DELETE FROM teams WHERE id = ? AND scrim_id = ?").run(teamId, scrimId);
-
   await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
   await updateConfirmEmbed(q.scrimById.get(scrimId)).catch(() => {});
-  return res.redirect(`/scrims/${scrimId}`);
+  res.redirect(`/scrims/${scrimId}`);
 });
+
+function parseDurationToMs(s) {
+  s = String(s || "").trim().toLowerCase();
+  if (!s || s === "0" || s === "perm" || s === "perma") return 0;
+  const m = s.match(/^(\d+)\s*(h|d)$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return m[2] === "h" ? n * 3600000 : n * 86400000;
+}
 
 app.post("/scrims/:id/team/:teamId/ban", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -2137,22 +2156,22 @@ app.post("/scrims/:id/team/:teamId/ban", requireLogin, async (req, res) => {
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  const team = db.prepare("SELECT * FROM teams WHERE id = ? AND scrim_id = ?").get(teamId, scrimId);
-  if (!team) return res.status(404).send("Team not found");
+  const team = db.prepare("SELECT * FROM teams WHERE id=? AND scrim_id=?").get(teamId, scrimId);
+  if (!team) return res.redirect(`/scrims/${scrimId}`);
 
   const reason = String(req.body.reason || "Banned by staff").slice(0, 200);
   const ms = parseDurationToMs(req.body.duration);
   if (ms === null) return res.status(400).send("Bad duration");
 
-  const expiresAt = ms === 0 ? null : toISO(addDuration(ms));
+  const expiresAt = ms === 0 ? null : new Date(Date.now() + ms).toISOString();
 
-  // Save ban
+  // save ban
   q.banUpsert.run(guildId, team.owner_user_id, reason, expiresAt);
 
-  // Delete their team slot
-  db.prepare("DELETE FROM teams WHERE id = ? AND scrim_id = ?").run(teamId, scrimId);
+  // remove team from scrim
+  db.prepare("DELETE FROM teams WHERE id=? AND scrim_id=?").run(teamId, scrimId);
 
-  // Remove team role
+  // remove team role
   if (scrim.team_role_id) {
     try {
       const guild = await discord.guilds.fetch(scrim.guild_id);
@@ -2161,7 +2180,7 @@ app.post("/scrims/:id/team/:teamId/ban", requireLogin, async (req, res) => {
     } catch {}
   }
 
-  // Give ban role (blocks register)
+  // give ban role
   if (scrim.ban_role_id) {
     try {
       const guild = await discord.guilds.fetch(scrim.guild_id);
@@ -2172,11 +2191,10 @@ app.post("/scrims/:id/team/:teamId/ban", requireLogin, async (req, res) => {
 
   await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
   await updateConfirmEmbed(q.scrimById.get(scrimId)).catch(() => {});
-  return res.redirect(`/scrims/${scrimId}`);
+  res.redirect(`/scrims/${scrimId}`);
 });
 
-
-app.post("/scrims/:id/unban", requireLogin, (req, res) => {
+app.post("/scrims/:id/unban", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
   const userId = String(req.body.userId || "").trim();
@@ -2184,8 +2202,20 @@ app.post("/scrims/:id/unban", requireLogin, (req, res) => {
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  if (userId) q.unban.run(guildId, userId);
-  return res.redirect(`/scrims/${scrimId}`);
+  if (userId) {
+    q.unban.run(guildId, userId);
+
+    // remove ban role too
+    if (scrim.ban_role_id) {
+      try {
+        const guild = await discord.guilds.fetch(scrim.guild_id);
+        const mem = await guild.members.fetch(userId);
+        await mem.roles.remove(scrim.ban_role_id);
+      } catch {}
+    }
+  }
+
+  res.redirect(`/scrims/${scrimId}`);
 });
 
 // RESULTS
@@ -2517,6 +2547,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
