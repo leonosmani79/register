@@ -252,6 +252,21 @@ function addColumnIfMissing(table, column, defSql) {
 addColumnIfMissing("scrims", "slot_template", "TEXT");
 addColumnIfMissing("scrims", "slots_channel_id", "TEXT");
 addColumnIfMissing("scrims", "slots_spam", "INTEGER NOT NULL DEFAULT 0");
+function colExists(table, col) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(r => r.name);
+  return cols.includes(col);
+}
+
+function addCol(table, colDef) {
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${colDef}`);
+}
+
+try {
+  if (!colExists("scrims", "ban_role_id")) addCol("scrims", "ban_role_id TEXT");
+  if (!colExists("bans", "expires_at")) addCol("bans", "expires_at TEXT");
+} catch (e) {
+  console.log("DB migrate warning:", e?.message || e);
+}
 
 const q = {
   scrimById: db.prepare("SELECT * FROM scrims WHERE id = ?"),
@@ -2315,6 +2330,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
