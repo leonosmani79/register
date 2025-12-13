@@ -2019,6 +2019,105 @@ app.post("/scrims/:id/postSlots", requireLogin, async (req, res) => {
 
   res.redirect(`/scrims/${scrimId}`);
 });
+app.post("/scrims/:id/team/:teamId/accept", requireLogin, async (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const teamId = Number(req.params.teamId);
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  const team = db.prepare("SELECT * FROM teams WHERE id = ? AND scrim_id = ?").get(teamId, scrimId);
+  if (!team) return res.status(404).send("Team not found");
+
+  q.setConfirmedByTeamId.run(teamId, scrimId);
+
+  await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
+  await updateConfirmEmbed(q.scrimById.get(scrimId)).catch(() => {});
+  return res.redirect(`/scrims/${scrimId}`);
+});
+
+app.post("/scrims/:id/team/:teamId/delete", requireLogin, async (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const teamId = Number(req.params.teamId);
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  const team = db.prepare("SELECT * FROM teams WHERE id = ? AND scrim_id = ?").get(teamId, scrimId);
+  if (!team) return res.status(404).send("Team not found");
+
+  // remove role if set
+  if (scrim.team_role_id) {
+    try {
+      const guild = await discord.guilds.fetch(scrim.guild_id);
+      const mem = await guild.members.fetch(team.owner_user_id);
+      await mem.roles.remove(scrim.team_role_id);
+    } catch {}
+  }
+
+  db.prepare("DELETE FROM teams WHERE id = ? AND scrim_id = ?").run(teamId, scrimId);
+
+  await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
+  await updateConfirmEmbed(q.scrimById.get(scrimId)).catch(() => {});
+  return res.redirect(`/scrims/${scrimId}`);
+});
+
+app.post("/scrims/:id/team/:teamId/ban", requireLogin, async (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const teamId = Number(req.params.teamId);
+  const reason = String(req.body.reason || "Banned by staff").slice(0, 200);
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  const team = db.prepare("SELECT * FROM teams WHERE id = ? AND scrim_id = ?").get(teamId, scrimId);
+  if (!team) return res.status(404).send("Team not found");
+
+  // save ban (guild-wide)
+  q.banUpsert.run(guildId, team.owner_user_id, reason);
+
+  // also delete the team slot
+  db.prepare("DELETE FROM teams WHERE id = ? AND scrim_id = ?").run(teamId, scrimId);
+
+  // remove role
+  if (scrim.team_role_id) {
+    try {
+      const guild = await discord.guilds.fetch(scrim.guild_id);
+      const mem = await guild.members.fetch(team.owner_user_id);
+      await mem.roles.remove(scrim.team_role_id);
+    } catch {}
+  }
+
+  // OPTIONAL: actually ban from Discord server (only if bot has Ban Members permission)
+  // Uncomment if you want real Discord bans:
+  /*
+  try {
+    const guild = await discord.guilds.fetch(scrim.guild_id);
+    await guild.members.ban(team.owner_user_id, { reason });
+  } catch (e) {
+    console.log("Discord ban failed (permission?)", e?.message || e);
+  }
+  */
+
+  await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
+  await updateConfirmEmbed(q.scrimById.get(scrimId)).catch(() => {});
+  return res.redirect(`/scrims/${scrimId}`);
+});
+
+app.post("/scrims/:id/unban", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const userId = String(req.body.userId || "").trim();
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  if (userId) q.unban.run(guildId, userId);
+  return res.redirect(`/scrims/${scrimId}`);
+});
 
 // RESULTS
 app.get("/scrims/:id/results", requireLogin, (req, res) => {
@@ -2215,6 +2314,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
