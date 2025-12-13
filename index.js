@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS bans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
+  expires_at TEXT,
   reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(guild_id, user_id)
@@ -2314,6 +2315,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
