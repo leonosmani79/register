@@ -1567,15 +1567,19 @@ app.get("/servers", requireLogin, async (req, res) => {
         user: req.session.user,
         selectedGuild: null,
         active: "servers",
-        body: `
-          <h2 class="h">Choose a server</h2>
-          <p class="muted">Showing only servers you manage <b>AND</b> where the bot is installed.</p>
-          ${note}
-          <table>
-            <thead><tr><th>Server</th><th>Action</th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
-          </table>
-        `,
+       body: `
+  <h2 class="h">Choose a server</h2>
+  <p class="muted">Showing only servers you manage <b>AND</b> where the bot is installed.</p>
+  ${note}
+
+  <div class="tableWrap">
+    <table>
+      <thead><tr><th>Server</th><th>Action</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
+    </table>
+  </div>
+`
+,
       })
     );
   } catch (e) {
@@ -2674,6 +2678,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
