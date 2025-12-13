@@ -166,6 +166,32 @@ function renderSlotGif({ templateKey, scrimId, slot, teamName, teamTag }) {
       .save(outPath);
   });
 }
+function toISO(d) {
+  if (!d) return null;
+  return new Date(d).toISOString();
+}
+
+function addDuration(ms) {
+  return new Date(Date.now() + ms);
+}
+
+function parseDurationToMs(s) {
+  // allowed: "1h", "6h", "1d", "7d", "30d", "0" (perm)
+  s = String(s || "").trim().toLowerCase();
+  if (!s || s === "0" || s === "perm" || s === "perma") return 0;
+  const m = s.match(/^(\d+)\s*(h|d)$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = m[2];
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return unit === "h" ? n * 60 * 60 * 1000 : n * 24 * 60 * 60 * 1000;
+}
+
+function isBanActive(banRow) {
+  if (!banRow) return false;
+  if (!banRow.expires_at) return true; // perma
+  return Date.now() < new Date(banRow.expires_at).getTime();
+}
 
 // ---------------------- SQLITE ---------------------- //
 const dbPath = path.join(__dirname, "scrims.db");
@@ -279,6 +305,29 @@ const q = {
       slots_spam = ?
     WHERE id = ? AND guild_id = ?
   `),
+  updateScrimSettings: db.prepare(`
+  UPDATE scrims SET
+    registration_channel_id=?,
+    list_channel_id=?,
+    confirm_channel_id=?,
+    team_role_id=?,
+    ban_role_id=?,
+    open_at=?,
+    close_at=?,
+    confirm_open_at=?,
+    confirm_close_at=?
+  WHERE id=? AND guild_id=?
+`),
+
+banUpsert: db.prepare(`
+  INSERT INTO bans (guild_id, user_id, reason, expires_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(guild_id, user_id) DO UPDATE SET
+    reason=excluded.reason,
+    expires_at=excluded.expires_at
+`),
+
+banByUser: db.prepare(`SELECT * FROM bans WHERE guild_id=? AND user_id=?`),
 
   createScrim: db.prepare(`
     INSERT INTO scrims (
@@ -2330,6 +2379,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
