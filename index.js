@@ -1742,34 +1742,41 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
       </td>
       <td><code>${esc(t.owner_user_id)}</code></td>
       <td>${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</td>
-      <td style="width:360px">
-        <div class="row">
+      <td style="width:420px">
+        <div class="row" style="gap:8px">
           <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept" style="margin:0">
             <button class="btn2" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
           </form>
 
           <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete" style="margin:0"
-                onsubmit="return confirm('Delete slot #${t.slot} for ${esc(t.team_tag)}?')">
+                onsubmit="return confirm('Delete slot #${t.slot} (${t.team_tag})?')">
             <button class="btn2" type="submit">Delete</button>
           </form>
 
           <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
                 onsubmit="return confirm('Ban this user from registering again?')">
-            <input type="hidden" name="reason" value="Banned by staff"/>
-            <button class="btn2" type="submit">Ban</button>
+            <select name="duration" style="width:110px;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:#f5f5f7">
+              <option value="0">PERMA</option>
+              <option value="1h">1H</option>
+              <option value="6h">6H</option>
+              <option value="1d">1D</option>
+              <option value="7d">7D</option>
+              <option value="30d">30D</option>
+            </select>
+            <input name="reason" placeholder="reason..." style="width:140px;margin-top:6px"/>
+            <button class="btn2" type="submit" style="margin-top:6px">Ban</button>
           </form>
         </div>
       </td>
     </tr>
   `).join("");
 
-  // optional: show bans list
-  const bans = q.bansByGuild.all(guildId);
+  const bans = q.bansByGuild ? q.bansByGuild.all(guildId) : [];
   const banRows = bans.map((b) => `
     <tr>
       <td><code>${esc(b.user_id)}</code></td>
       <td class="muted">${esc(b.reason || "—")}</td>
-      <td class="muted">${esc(b.created_at)}</td>
+      <td class="muted">${esc(b.expires_at || "PERMA")}</td>
       <td style="width:160px">
         <form method="POST" action="/scrims/${scrimId}/unban" style="margin:0">
           <input type="hidden" name="userId" value="${esc(b.user_id)}"/>
@@ -1786,12 +1793,18 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
     active: "scrims",
     body: `
       <h2 class="h">${esc(scrim.name)} — Manage Slots</h2>
-      <p class="muted">Teams: <b>${teams.length}/${totalSlots}</b> • Reg: <b>${scrim.registration_open ? "OPEN" : "CLOSED"}</b> • Confirms: <b>${scrim.confirm_open ? "OPEN" : "CLOSED"}</b></p>
+      <p class="muted">
+        Teams: <b>${teams.length}/${totalSlots}</b> •
+        Reg: <b>${scrim.registration_open ? "OPEN" : "CLOSED"}</b> •
+        Confirms: <b>${scrim.confirm_open ? "OPEN" : "CLOSED"}</b>
+      </p>
 
       <div class="row" style="margin:12px 0">
         <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0"><button class="btn2" type="submit">Post Reg</button></form>
         <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post List</button></form>
         <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post Confirm</button></form>
+
+        <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}/settings">Settings</a>
         <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}/results">Results</a>
       </div>
 
@@ -1808,12 +1821,13 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
 
       <h3 class="h" style="font-size:14px">Bans</h3>
       <table>
-        <thead><tr><th>User</th><th>Reason</th><th>When</th><th>Action</th></tr></thead>
+        <thead><tr><th>User</th><th>Reason</th><th>Expires</th><th>Action</th></tr></thead>
         <tbody>${banRows || `<tr><td colspan="4">No bans.</td></tr>`}</tbody>
       </table>
     `
   }));
 });
+
 
 app.get("/scrims/:id/messages", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -2547,6 +2561,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
