@@ -2320,39 +2320,64 @@ function renderRegisterPage(title, inner) {
 </head><body><div class="card">${inner}</div></body></html>`;
 }
 
-app.get("/register/:scrimId", (req, res) => {
+// helper (put it somewhere above routes)
+function isBanActive(ban) {
+  if (!ban) return false;
+  if (!ban.expires_at) return true; // no expiry = permanent
+  const exp = new Date(ban.expires_at).getTime();
+  return Number.isFinite(exp) && exp > Date.now();
+}
+
+// ✅ FIXED: must be async + guild fetched before ban-role check
+app.get("/register/:scrimId", async (req, res) => {
   const scrimId = Number(req.params.scrimId);
   const userId = String(req.query.user || "");
 
   const scrim = q.scrimById.get(scrimId);
-  if (!scrim) return res.send(renderRegisterPage("Invalid", `<h1>Invalid Scrim</h1><div class="boxBad">Scrim not found.</div>`));
-  if (!userId) return res.send(renderRegisterPage("Invalid", `<h1>Invalid Link</h1><div class="boxBad">Missing user id.</div>`));
-  if (!scrim.registration_open) return res.send(renderRegisterPage("Closed", `<h1>Closed</h1><div class="boxBad">Registration is closed.</div>`));
-  // ban check (DB)
-const ban = q.banByUser.get(scrim.guild_id, userId);
-if (ban && isBanActive(ban)) {
-  return res.send(renderRegisterPage("Banned", `
-    <h1>Access Blocked</h1>
-    <div class="boxBad">
-      You are banned from registering in this server.<br/>
-      ${ban.expires_at ? `Expires: <b>${esc(ban.expires_at)}</b>` : `<b>Permanent ban</b>`}
-    </div>
-  `));
-}
 
-// ban role check (Discord)
-if (scrim.ban_role_id) {
-  try {
-    const mem = await guild.members.fetch(userId);
-    if (mem.roles.cache.has(scrim.ban_role_id)) {
+  if (!scrim) {
+    return res.send(renderRegisterPage("Invalid", `<h1>Invalid Scrim</h1><div class="boxBad">Scrim not found.</div>`));
+  }
+  if (!userId) {
+    return res.send(renderRegisterPage("Invalid", `<h1>Invalid Link</h1><div class="boxBad">Missing user id.</div>`));
+  }
+  if (!scrim.registration_open) {
+    return res.send(renderRegisterPage("Closed", `<h1>Closed</h1><div class="boxBad">Registration is closed.</div>`));
+  }
+
+  // --- Ban check (DB) ---
+  // expects: q.banByUser.get(guild_id, user_id) -> { expires_at, reason, ... }
+  if (q.banByUser) {
+    const ban = q.banByUser.get(scrim.guild_id, userId);
+    if (ban && isBanActive(ban)) {
       return res.send(renderRegisterPage("Banned", `
         <h1>Access Blocked</h1>
-        <div class="boxBad">You have the ban role and cannot register.</div>
+        <div class="boxBad">
+          You are banned from registering in this server.<br/>
+          ${ban.expires_at ? `Expires: <b>${esc(ban.expires_at)}</b>` : `<b>Permanent ban</b>`}
+        </div>
       `));
     }
-  } catch {}
-}
-    const guild = await discord.guilds.fetch(scrim.guild_id);
+  }
+
+  // --- Ban check (Discord Role) ---
+  if (scrim.ban_role_id) {
+    try {
+      const guild = await discord.guilds.fetch(scrim.guild_id);
+      const mem = await guild.members.fetch(userId);
+      if (mem?.roles?.cache?.has(scrim.ban_role_id)) {
+        return res.send(renderRegisterPage("Banned", `
+          <h1>Access Blocked</h1>
+          <div class="boxBad">You have the ban role and cannot register.</div>
+        `));
+      }
+    } catch {
+      // If member fetch fails (not in server), you can decide:
+      // return banned or ignore. We'll ignore for now.
+    }
+  }
+
+  // already registered?
   const existing = q.teamByUser.get(scrimId, userId);
   if (existing) {
     return res.send(renderRegisterPage("Already", `
@@ -2364,18 +2389,14 @@ if (scrim.ban_role_id) {
       </div>
     `));
   }
-if (q.isBanned.get(scrim.guild_id, userId)) {
-  return res.send(renderRegisterPage("Banned", `
-    <h1>Access Blocked</h1>
-    <div class="boxBad">You are banned from registering in this server.</div>
-  `));
-}
-  res.send(renderRegisterPage("Register", `
+
+  return res.send(renderRegisterPage("Register", `
     <h1>${esc(scrim.name)}</h1>
     <div class="muted">Discord ID: <code>${esc(userId)}</code></div>
 
     <form action="/register/${scrimId}" method="POST" enctype="multipart/form-data">
       <input type="hidden" name="userId" value="${esc(userId)}"/>
+
       <label>Team Name</label>
       <input name="teamName" required/>
 
@@ -2391,6 +2412,7 @@ if (q.isBanned.get(scrim.guild_id, userId)) {
     <div class="muted" style="margin-top:10px">Auto-approved. Role is added instantly.</div>
   `));
 });
+
 
 app.post("/register/:scrimId", upload.single("teamLogo"), async (req, res) => {
   const scrimId = Number(req.params.scrimId);
@@ -2560,6 +2582,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
