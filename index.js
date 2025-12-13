@@ -1400,6 +1400,16 @@ th{color:var(--muted)}
 @media (min-width: 781px){
   .scrimCards{display:none;}
 }
+/* --- Mobile table fix --- */
+.tableWrap{
+  width:100%;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.06);
+}
+
+.tableWrap table{ min-width: 700px; }
 
 </style></head>
 <body><div class="wrap">
@@ -2664,6 +2674,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
+
 
 
 
