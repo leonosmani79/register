@@ -1374,6 +1374,7 @@ button{
   text-transform:uppercase;
 }
 
+/* ✅ BUTTON SYSTEM (works for <a> AND <button>) */
 .btn2{
   background:rgba(15,23,42,.85);
   border:1px solid var(--border);
@@ -1381,27 +1382,33 @@ button{
   font-family:Orbitron,system-ui;
   letter-spacing:.12em;
   text-transform:uppercase;
+
+  /* ✅ restore padding + radius ALWAYS */
+  padding:10px 12px;
+  border-radius:14px;
+
   display:inline-flex;
   align-items:center;
   justify-content:center;
   gap:8px;
   text-decoration:none;
+  cursor:pointer;
+  box-sizing:border-box;
+  min-height:40px;
 }
 button.btn2{
-  border:1px solid var(--border);
   background:rgba(15,23,42,.85);
+  border:1px solid var(--border);
   color:var(--text);
 }
 .btn2.primary{
   border-color: rgba(255,179,0,.55);
   box-shadow: 0 0 0 1px rgba(255,179,0,.18);
 }
+.btn2:hover{ transform: translateY(-1px); border-color: rgba(255,179,0,.55); }
+.btn2:active{ transform: scale(.99); }
 
-.scrimTitle{
-  font-family:Orbitron,system-ui;
-  letter-spacing:.08em;
-  text-transform:uppercase;
-}
+.scrimTitle{font-family:Orbitron,system-ui;letter-spacing:.08em;text-transform:uppercase}
 .status{
   font-family:Orbitron,system-ui;
   letter-spacing:.10em;
@@ -1425,128 +1432,72 @@ th{color:var(--muted)}
 .muted{color:var(--muted)}
 .h{font-family:Orbitron;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
 .warn{margin-top:12px;padding:10px;border-radius:12px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.55);color:#fecaca;font-size:13px}
-/* ===== DESKTOP SCRIMS ACTION BUTTONS (FIX) ===== */
-@media (min-width: 781px){
-  .row .btn2{
-    padding: 10px 14px;
-    border-radius: 12px;
-    min-height: 40px;
-    width: auto;
-    white-space: nowrap;
-  }
 
-  .row form{
-    margin: 0;
-  }
+.table-wrap{width:100%; overflow:auto; -webkit-overflow-scrolling:touch}
 
-  .row{
-    align-items: center;
-  }
+/* ✅ ban controls */
+.banBox{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.banBox > *{min-width:0}
+.banInput{flex:1 1 220px}
+.banSelect{flex:0 0 110px}
+.banDays{flex:0 0 90px}
+@media (max-width:780px){
+  .banInput{flex:1 1 100%}
+  .banSelect{flex:1 1 48%}
+  .banDays{flex:1 1 48%}
 }
 
-/* ===== TABLE WRAP ===== */
-.table-wrap{width:100%; overflow:auto}
+/* =========================
+   SCRIMS LIST — MOBILE CARDS
+   IMPORTANT: we DO NOT hide all tables anymore
+   We only hide tables that we mark with .hideOnMobile
+   ========================= */
+@media (max-width:780px){
+  .hideOnMobile{ display:none !important; }
+}
+
+/* scrim list cards */
+.scrimCards{display:none;}
+@media (max-width:780px){
+  .scrimCards{display:grid;gap:12px;}
+  .scrimCard{background:rgba(15,23,42,.72);border:1px solid rgba(148,163,184,.18);border-radius:18px;padding:14px;overflow:hidden}
+  .scrimTop{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+  .scrimName{font-family:Orbitron,system-ui;letter-spacing:.08em;text-transform:uppercase;font-size:14px;line-height:1.2;margin:0}
+  .scrimMeta{margin-top:6px;color:var(--muted);font-size:12px;word-break:break-word}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .chip{font-family:Orbitron,system-ui;letter-spacing:.10em;text-transform:uppercase;font-size:11px;padding:6px 10px;border-radius:999px;border:1px solid rgba(148,163,184,.25);background:rgba(2,6,23,.35);display:inline-flex;align-items:center;gap:6px}
+  .chip.ok{border-color:rgba(34,197,94,.45)}
+  .chip.bad{border-color:rgba(239,68,68,.45)}
+  .cardActionsRow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;width:100%}
+  .cardActionsRow form{margin:0}
+  .cardActionsRow *{min-width:0}
+  .cardActionsRow a.btn2,.cardActionsRow button.btn2{width:100% !important}
+  @media (max-width:420px){ .cardActionsRow{grid-template-columns:1fr} }
+}
 
 /* =========================
-   SCRIMS — MOBILE CARDS
+   MANAGE PAGE — MOBILE TEAM CARDS
    ========================= */
-.scrimCards{display:none;}
-@media (max-width: 780px){
-  table{display:none !important;}
-  .scrimCards{display:grid;gap:12px;}
-
-  .scrimCard{
+.teamCards{display:none;}
+@media (max-width:780px){
+  .teamCards{display:grid;gap:12px;margin-top:12px;}
+  .teamCard{
     background:rgba(15,23,42,.72);
     border:1px solid rgba(148,163,184,.18);
     border-radius:18px;
     padding:14px;
     overflow:hidden;
   }
-
-  .scrimTop{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
-  .scrimName{
-    font-family:Orbitron,system-ui;
-    letter-spacing:.08em;
-    text-transform:uppercase;
-    font-size:14px;
-    line-height:1.2;
-    margin:0;
-  }
-  .scrimMeta{margin-top:6px;color:var(--muted);font-size:12px;word-break:break-word}
-
-  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-  .chip{
-    font-family:Orbitron,system-ui;
-    letter-spacing:.10em;
-    text-transform:uppercase;
-    font-size:11px;
-    padding:6px 10px;
-    border-radius:999px;
-    border:1px solid rgba(148,163,184,.25);
-    background:rgba(2,6,23,.35);
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-  }
-  .chip.ok{border-color:rgba(34,197,94,.45)}
-  .chip.bad{border-color:rgba(239,68,68,.45)}
-
-  /* ✅ Two rows (Manage+Results) then (Open/Close toggles) */
-  .cardActionsRow{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:10px;
-    margin-top:12px;
-    width:100%;
-  }
-  .cardActionsRow form{margin:0;}
-  .cardActionsRow *{min-width:0;}
-
-  .cardActionsRow a.btn2,
-  .cardActionsRow button.btn2{
-    width:100% !important;
-    max-width:100%;
-    display:flex !important;
-    align-items:center;
-    justify-content:center;
-    box-sizing:border-box;
-    white-space:nowrap;
-    padding:10px 12px;
-    border-radius:14px;
-    min-height:40px;
-  }
-
-  @media (max-width: 420px){
-    .cardActionsRow{grid-template-columns:1fr;}
-  }
-}
-@media (min-width: 781px){
-  .scrimCards{display:none;}
+  .teamTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .teamSlot{font-family:Orbitron;letter-spacing:.10em;text-transform:uppercase;font-size:13px}
+  .teamName{margin:6px 0 0;font-weight:700}
+  .teamMeta{margin-top:4px;color:var(--muted);font-size:12px;word-break:break-word}
+  .teamActions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .teamActions form{margin:0}
+  @media (max-width:420px){ .teamActions{grid-template-columns:1fr} }
+  .teamActions .btn2{width:100%}
 }
 
-/* =========================
-   SERVERS — MOBILE CARDS
-   (separate classes so it doesn't clash with scrims)
-   ========================= */
-.cards{display:none;gap:12px;}
-.cardItem{
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(15,23,42,.65);
-  border-radius:16px;
-  padding:14px;
-}
-.cardTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
-.cardName{font-weight:700;}
-.cardId{color:var(--muted);font-size:12px;margin-top:4px;word-break:break-all;}
-
-.serverActions{margin-top:12px;display:flex;gap:10px;}
-.serverActions form{margin:0;flex:1;}
-
-@media (max-width: 760px){
-  table{display:none;}
-  .cards{display:flex;flex-direction:column;}
-  .serverActions{display:grid;grid-template-columns:1fr;gap:10px;}
-}
 </style></head>
 <body><div class="wrap">
 <div class="top">
@@ -1560,6 +1511,7 @@ ${nav}
 <div class="card">${body}</div>
 </div></body></html>`;
 }
+
 
 function requireLogin(req, res, next) {
   if (!req.session.user) return res.redirect("/");
@@ -1725,7 +1677,7 @@ app.get("/servers", requireLogin, async (req, res) => {
   <p class="muted">Showing only servers you manage <b>AND</b> where the bot is installed.</p>
   ${note}
 
-  <table>
+  <table class="hideOnMobile">
     <thead><tr><th>Server</th><th>Action</th></tr></thead>
     <tbody>${rows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
   </table>
@@ -1809,7 +1761,7 @@ app.get("/scrims", requireLogin, (req, res) => {
         <h2 class="h">Scrims</h2>
 
         <div class="table-wrap">
-          <table>
+          <table class="hideOnMobile">
             <thead><tr><th>Scrim</th><th>Reg</th><th>Confirms</th><th>Actions</th></tr></thead>
             <tbody>${rows || `<tr><td colspan="4">No scrims. Create one.</td></tr>`}</tbody>
           </table>
@@ -1967,124 +1919,143 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
   const teams = q.teamsByScrim.all(scrimId);
   const totalSlots = scrim.max_slot - scrim.min_slot + 1;
 
-  const rows = teams
-    .map((t) => `
-      <tr>
-        <td><b>#${t.slot}</b></td>
-        <td>
-          <b>${esc(t.team_name)}</b>
-          <div class="muted">[${esc(t.team_tag)}] • TeamID: ${t.id}</div>
-        </td>
-        <td><code>${esc(t.owner_user_id)}</code></td>
-        <td>${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</td>
-        <td style="width:420px">
-          <div class="row" style="gap:8px; align-items:flex-start">
+  // TABLE ROWS (desktop)
+  const rows = teams.map((t) => `
+    <tr>
+      <td><b>#${t.slot}</b></td>
+      <td>
+        <b>${esc(t.team_name)}</b>
+        <div class="muted">[${esc(t.team_tag)}] • TeamID: ${t.id}</div>
+      </td>
+      <td><code>${esc(t.owner_user_id)}</code></td>
+      <td>${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</td>
+      <td style="width:420px">
+        <div class="row" style="gap:8px; align-items:flex-start">
 
-            <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept" style="margin:0">
-              <button class="btn2" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
-            </form>
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept" style="margin:0">
+            <button class="btn2" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
+          </form>
 
-            <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete" style="margin:0"
-                  onsubmit="return confirm('Delete slot #${t.slot} (${t.team_tag})?')">
-              <button class="btn2" type="submit">Delete</button>
-            </form>
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete" style="margin:0"
+                onsubmit="return confirm('Delete slot #${t.slot} (${t.team_tag})?')">
+            <button class="btn2" type="submit">Delete</button>
+          </form>
 
-            <!-- Ban Form -->
-            <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
-                  onsubmit="return confirm('Ban this user?')">
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
+                onsubmit="return confirm('Ban this user?')">
+            <div class="banBox">
+              <input class="banInput" name="reason" placeholder="Reason (optional)" value="Banned by staff" />
+              <select class="banSelect" name="mode">
+                <option value="perm">Perm</option>
+                <option value="days" selected>Days</option>
+              </select>
+              <input class="banDays" name="days" type="number" min="1" max="365" value="7" />
+              <button class="btn2" type="submit">Ban</button>
+            </div>
+          </form>
 
-              <div class="banBox">
-                <input class="banInput" name="reason" placeholder="Reason (optional)" value="Banned by staff" />
+        </div>
+      </td>
+    </tr>
+  `).join("");
 
-                <select class="banSelect" name="mode">
-                  <option value="perm">Perm</option>
-                  <option value="days" selected>Days</option>
-                </select>
+  // MOBILE TEAM CARDS (slots visible on phone)
+  const teamCards = teams.map((t) => `
+    <div class="teamCard">
+      <div class="teamTop">
+        <div style="min-width:0">
+          <div class="teamSlot">#${t.slot} • ${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</div>
+          <div class="teamName">${esc(t.team_name)} <span class="muted">[${esc(t.team_tag)}]</span></div>
+          <div class="teamMeta">Owner: <code>${esc(t.owner_user_id)}</code> • TeamID: ${t.id}</div>
+        </div>
+      </div>
 
-                <input class="banDays" name="days" type="number" min="1" max="365" value="7" />
+      <div class="teamActions">
+        <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept">
+          <button class="btn2 ${t.confirmed ? "" : "primary"}" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
+        </form>
 
-                <button class="btn2" type="submit">Ban</button>
-              </div>
-            </form>
+        <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete"
+              onsubmit="return confirm('Delete slot #${t.slot} (${t.team_tag})?')">
+          <button class="btn2" type="submit">Delete</button>
+        </form>
+      </div>
 
-          </div>
-        </td>
-      </tr>
-    `)
-    .join("");
+      <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin-top:10px"
+            onsubmit="return confirm('Ban this user?')">
+        <div class="banBox">
+          <input class="banInput" name="reason" placeholder="Reason (optional)" value="Banned by staff" />
+          <select class="banSelect" name="mode">
+            <option value="perm">Perm</option>
+            <option value="days" selected>Days</option>
+          </select>
+          <input class="banDays" name="days" type="number" min="1" max="365" value="7" />
+          <button class="btn2" type="submit">Ban</button>
+        </div>
+      </form>
+    </div>
+  `).join("");
 
   const bans = q.bansByGuild ? q.bansByGuild.all(guildId) : [];
-  const banRows = bans
-    .map((b) => `
-      <tr>
-        <td><code>${esc(b.user_id)}</code></td>
-        <td class="muted">${esc(b.reason || "—")}</td>
-        <td class="muted">${esc(b.expires_at || "PERMA")}</td>
-        <td style="width:160px">
-          <form method="POST" action="/scrims/${scrimId}/unban" style="margin:0">
-            <input type="hidden" name="userId" value="${esc(b.user_id)}"/>
-            <button class="btn2" type="submit">Unban</button>
-          </form>
-        </td>
-      </tr>
-    `)
-    .join("");
+  const banRows = bans.map((b) => `
+    <tr>
+      <td><code>${esc(b.user_id)}</code></td>
+      <td class="muted">${esc(b.reason || "—")}</td>
+      <td class="muted">${esc(b.expires_at || "PERMA")}</td>
+      <td style="width:160px">
+        <form method="POST" action="/scrims/${scrimId}/unban" style="margin:0">
+          <input type="hidden" name="userId" value="${esc(b.user_id)}"/>
+          <button class="btn2" type="submit">Unban</button>
+        </form>
+      </td>
+    </tr>
+  `).join("");
 
-  res.send(
-    renderLayout({
-      title: `Manage • ${scrim.name}`,
-      user: req.session.user,
-      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
-      active: "scrims",
-      body: `
-        <h2 class="h">${esc(scrim.name)} — Manage Slots</h2>
-        <p class="muted">
-          Teams: <b>${teams.length}/${totalSlots}</b> •
-          Reg: <b>${scrim.registration_open ? "OPEN" : "CLOSED"}</b> •
-          Confirms: <b>${scrim.confirm_open ? "OPEN" : "CLOSED"}</b>
-        </p>
+  res.send(renderLayout({
+    title: `Manage • ${scrim.name}`,
+    user: req.session.user,
+    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+    active: "scrims",
+    body: `
+      <h2 class="h">${esc(scrim.name)} — Manage Slots</h2>
+      <p class="muted">
+        Teams: <b>${teams.length}/${totalSlots}</b> •
+        Reg: <b>${scrim.registration_open ? "OPEN" : "CLOSED"}</b> •
+        Confirms: <b>${scrim.confirm_open ? "OPEN" : "CLOSED"}</b>
+      </p>
 
-        <div class="row" style="margin:12px 0">
-          <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0">
-            <button class="btn2" type="submit">Post Reg</button>
-          </form>
-          <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0">
-            <button class="btn2" type="submit">Post List</button>
-          </form>
-          <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0">
-            <button class="btn2" type="submit">Post Confirm</button>
-          </form>
+      <div class="row" style="margin:12px 0">
+        <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0"><button class="btn2" type="submit">Post Reg</button></form>
+        <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post List</button></form>
+        <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post Confirm</button></form>
 
-          <a class="btn2" href="/scrims/${scrimId}/results">Results</a>
-          <a class="btn2" href="/scrims">Back</a>
-        </div>
+        <a class="btn2 primary" href="/scrims/${scrimId}/results">Results</a>
+        <a class="btn2" href="/scrims">Back</a>
+      </div>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Slot</th><th>Team</th><th>Owner</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody>
-              ${rows || `<tr><td colspan="5">No teams registered yet.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
+      <div class="teamCards">
+        ${teamCards || `<div class="warn">No teams registered yet.</div>`}
+      </div>
 
-        <hr style="margin:18px 0;opacity:.2"/>
+      <div class="table-wrap">
+        <table class="hideOnMobile">
+          <thead><tr><th>Slot</th><th>Team</th><th>Owner</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="5">No teams registered yet.</td></tr>`}</tbody>
+        </table>
+      </div>
 
-        <h3 class="h" style="font-size:14px">Bans</h3>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>User</th><th>Reason</th><th>Expires</th><th>Action</th></tr></thead>
-            <tbody>${banRows || `<tr><td colspan="4">No bans.</td></tr>`}</tbody>
-          </table>
-        </div>
-      `,
-    })
-  );
+      <hr style="margin:18px 0;opacity:.2"/>
+
+      <h3 class="h" style="font-size:14px">Bans</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>User</th><th>Reason</th><th>Expires</th><th>Action</th></tr></thead>
+          <tbody>${banRows || `<tr><td colspan="4">No bans.</td></tr>`}</tbody>
+        </table>
+      </div>
+    `
+  }));
 });
-
-
 
 app.get("/scrims/:id/messages", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
