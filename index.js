@@ -1411,49 +1411,100 @@ th{color:var(--muted)}
 .table-wrap{width:100%; overflow:auto}
 
 /* Mobile cards */
+/* =========================
+   SCRIMS — MOBILE CARDS (IMPROVED)
+   ========================= */
 @media (max-width: 780px){
   table{display:none !important;}
 
-  .scrimCards{display:grid; gap:12px;}
-  .scrimCard{
-    background: rgba(15,23,42,.70);
-    border:1px solid rgba(148,163,184,.18);
-    border-radius:16px;
-    padding:14px;
+  .scrimCards{
+    display:grid;
+    gap:12px;
   }
-  .scrimName{
-    font-family:Orbitron;
-    letter-spacing:.08em;
-    text-transform:uppercase;
-    font-size:14px;
-    line-height:1.2;
-  }
-  .scrimId{color:var(--muted); font-size:12px; margin-top:6px}
-  .chips{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
-  .chip{
-    font-size:12px;
-    padding:6px 10px;
-    border-radius:999px;
-    border:1px solid rgba(148,163,184,.25);
-    background: rgba(2,6,23,.35);
-  }
-  .chip.ok{border-color: rgba(34,197,94,.45)}
-  .chip.bad{border-color: rgba(239,68,68,.45)}
 
-  /* Buttons on mobile: 1 column (big) */
+  .scrimCard{
+    background: rgba(15,23,42,.72);
+    border: 1px solid rgba(148,163,184,.18);
+    border-radius: 18px;
+    padding: 14px;
+  }
+
+  .scrimTop{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+  }
+
+  .scrimName{
+    font-family: Orbitron, system-ui;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-size: 14px;
+    line-height: 1.2;
+    margin: 0;
+  }
+
+  .scrimMeta{
+    margin-top:6px;
+    color: var(--muted);
+    font-size: 12px;
+    word-break: break-word;
+  }
+
+  .chips{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-top:10px;
+  }
+
+  .chip{
+    font-family: Orbitron, system-ui;
+    letter-spacing: .10em;
+    text-transform: uppercase;
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(148,163,184,.25);
+    background: rgba(2,6,23,.35);
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+  }
+  .chip.ok{ border-color: rgba(34,197,94,.45); }
+  .chip.bad{ border-color: rgba(239,68,68,.45); }
+
   .cardActions{
     display:grid;
-    grid-template-columns:1fr;
+    grid-template-columns: 1fr 1fr;
     gap:10px;
-    margin-top:12px
+    margin-top:12px;
   }
-  .cardActions form{margin:0}
-  .btn2, button.btn2{width:100% !important}
+
+  /* Make forms behave like buttons */
+  .cardActions form{ margin:0; }
+  .cardActions a.btn2,
+  .cardActions button.btn2{
+    width:100% !important;
+    min-height: 40px;
+    border-radius: 14px;
+  }
+
+  /* Primary action pop */
+  .cardActions a.btn2.primary,
+  .cardActions button.btn2.primary{
+    border-color: rgba(255,179,0,.55);
+    box-shadow: 0 0 0 1px rgba(255,179,0,.18);
+  }
 }
 
+/* show cards on mobile */
 @media (min-width: 781px){
   .scrimCards{display:none;}
 }
+
+
 /* --- Mobile table fix --- */
 .tableWrap{
   width:100%;
