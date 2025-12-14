@@ -125,6 +125,24 @@ async function safeSend(channel, payload) {
     return { ok: false, error: e?.message || String(e) };
   }
 }
+async function autoUnbanIfExpired(scrim, userId) {
+  const ban = q.banByUser.get(scrim.guild_id, userId);
+  if (!ban || !ban.expires_at) return;
+
+  if (Date.now() >= new Date(ban.expires_at).getTime()) {
+    // remove DB ban
+    q.unban.run(scrim.guild_id, userId);
+
+    // remove ban role
+    if (scrim.ban_role_id) {
+      try {
+        const guild = await discord.guilds.fetch(scrim.guild_id);
+        const mem = await guild.members.fetch(userId);
+        await mem.roles.remove(scrim.ban_role_id);
+      } catch {}
+    }
+  }
+}
 
 function ensureScrimGenDir(scrimId) {
   const d = path.join(generatedDir, `scrim_${scrimId}`);
@@ -2500,6 +2518,10 @@ app.get("/register/:scrimId", async (req, res) => {
   const userId = String(req.query.user || "");
 
   const scrim = q.scrimById.get(scrimId);
+if (scrim) {
+  await autoUnbanIfExpired(scrim, userId);
+}
+
 
   if (!scrim) {
     return res.send(renderRegisterPage("Invalid", `<h1>Invalid Scrim</h1><div class="boxBad">Scrim not found.</div>`));
@@ -2581,81 +2603,140 @@ app.get("/register/:scrimId", async (req, res) => {
 
 
 app.post("/register/:scrimId", upload.single("teamLogo"), async (req, res) => {
-  const scrimId = Number(req.params.scrimId);
-  const scrim = q.scrimById.get(scrimId);
-  if (!scrim) return res.send(renderRegisterPage("Invalid", `<h1>Invalid</h1><div class="boxBad">Scrim not found.</div>`));
-
-  const userId = String(req.body.userId || "");
-  const teamName = String(req.body.teamName || "").trim();
-  const teamTag = String(req.body.teamTag || "").trim().toUpperCase().slice(0, 6);
-  const file = req.file;
-  // ban check (DB)
-const ban = q.banByUser.get(scrim.guild_id, userId);
-if (ban && isBanActive(ban)) {
-  return res.send(renderRegisterPage("Banned", `
-    <h1>Access Blocked</h1>
-    <div class="boxBad">
-      You are banned from registering in this server.<br/>
-      ${ban.expires_at ? `Expires: <b>${esc(ban.expires_at)}</b>` : `<b>Permanent ban</b>`}
-    </div>
-  `));
-}
-
-// ban role check (Discord)
-if (scrim.ban_role_id) {
   try {
-    const guild = await discord.guilds.fetch(scrim.guild_id);
-    const mem = await guild.members.fetch(userId);
-    if (mem.roles.cache.has(scrim.ban_role_id)) {
-      return res.send(renderRegisterPage("Banned", `
-        <h1>Access Blocked</h1>
-        <div class="boxBad">You have the ban role and cannot register.</div>
-      `));
+    const scrimId = Number(req.params.scrimId);
+    const scrim = q.scrimById.get(scrimId);
+    if (!scrim) {
+      return res.send(
+        renderRegisterPage("Invalid", `<h1>Invalid</h1><div class="boxBad">Scrim not found.</div>`)
+      );
     }
-  } catch {}
-}
 
-  if (!userId || !teamName || !teamTag || !file) {
-    return res.send(renderRegisterPage("Error", `<h1>Error</h1><div class="boxBad">Missing data.</div>`));
-  }
-  if (!scrim.registration_open) return res.send(renderRegisterPage("Closed", `<h1>Closed</h1><div class="boxBad">Registration closed.</div>`));
+    const userId = String(req.body.userId || "").trim();
+    const teamName = String(req.body.teamName || "").trim();
+    const teamTag = String(req.body.teamTag || "").trim().toUpperCase().slice(0, 6);
+    const file = req.file;
 
-  const existing = q.teamByUser.get(scrimId, userId);
-  if (existing) {
-    return res.send(renderRegisterPage("Already", `<h1>Already Registered</h1><div class="boxOk">Slot: <b>#${existing.slot}</b></div>`));
-  }
+    // ✅ basic validation first
+    if (!userId || !teamName || !teamTag || !file) {
+      return res.send(
+        renderRegisterPage("Error", `<h1>Error</h1><div class="boxBad">Missing data.</div>`)
+      );
+    }
 
-  const slot = getNextFreeSlot(scrimId, scrim.min_slot, scrim.max_slot);
-  if (!slot) return res.send(renderRegisterPage("Full", `<h1>Full</h1><div class="boxBad">No slots left.</div>`));
+    if (!scrim.registration_open) {
+      return res.send(
+        renderRegisterPage("Closed", `<h1>Closed</h1><div class="boxBad">Registration closed.</div>`)
+      );
+    }
 
-  try {
-    q.insertTeam.run(scrimId, slot, teamName, teamTag, file.filename, userId);
-  } catch (e) {
-    console.error(e);
-    return res.send(renderRegisterPage("Error", `<h1>Error</h1><div class="boxBad">Registration failed.</div>`));
-  }
+    // ✅ auto remove expired bans (DB + role)
+    if (typeof autoUnbanIfExpired === "function") {
+      await autoUnbanIfExpired(scrim, userId);
+    }
 
-  if (scrim.team_role_id) {
+    // ✅ ban check (DB)
+    if (q.banByUser) {
+      const ban = q.banByUser.get(scrim.guild_id, userId);
+      if (ban && isBanActive(ban)) {
+        return res.send(
+          renderRegisterPage(
+            "Banned",
+            `
+            <h1>Access Blocked</h1>
+            <div class="boxBad">
+              You are banned from registering in this server.<br/>
+              ${ban.expires_at ? `Expires: <b>${esc(ban.expires_at)}</b>` : `<b>Permanent ban</b>`}
+            </div>
+          `
+          )
+        );
+      }
+    }
+
+    // ✅ ban role check (Discord)
+    if (scrim.ban_role_id) {
+      try {
+        const guild = await discord.guilds.fetch(scrim.guild_id);
+        const mem = await guild.members.fetch(userId);
+        if (mem?.roles?.cache?.has(scrim.ban_role_id)) {
+          return res.send(
+            renderRegisterPage(
+              "Banned",
+              `
+              <h1>Access Blocked</h1>
+              <div class="boxBad">You have the ban role and cannot register.</div>
+            `
+            )
+          );
+        }
+      } catch {}
+    }
+
+    // already registered?
+    const existing = q.teamByUser.get(scrimId, userId);
+    if (existing) {
+      return res.send(
+        renderRegisterPage(
+          "Already",
+          `<h1>Already Registered</h1><div class="boxOk">Slot: <b>#${existing.slot}</b></div>`
+        )
+      );
+    }
+
+    const slot = getNextFreeSlot(scrimId, scrim.min_slot, scrim.max_slot);
+    if (!slot) {
+      return res.send(
+        renderRegisterPage("Full", `<h1>Full</h1><div class="boxBad">No slots left.</div>`)
+      );
+    }
+
+    // insert team
     try {
-      const guild = await discord.guilds.fetch(scrim.guild_id);
-      const member = await guild.members.fetch(userId);
-      await member.roles.add(scrim.team_role_id);
+      q.insertTeam.run(scrimId, slot, teamName, teamTag, file.filename, userId);
     } catch (e) {
-      console.error("Role add failed:", e?.message || e);
+      console.error(e);
+      return res.send(
+        renderRegisterPage("Error", `<h1>Error</h1><div class="boxBad">Registration failed.</div>`)
+      );
     }
+
+    // give role
+    if (scrim.team_role_id) {
+      try {
+        const guild = await discord.guilds.fetch(scrim.guild_id);
+        const member = await guild.members.fetch(userId);
+        await member.roles.add(scrim.team_role_id);
+      } catch (e) {
+        console.error("Role add failed:", e?.message || e);
+      }
+    }
+
+    await ensureListMessage(scrim).catch(() => {});
+    await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
+
+    return res.send(
+      renderRegisterPage(
+        "Registered",
+        `
+        <h1>Registered ✅</h1>
+        <div class="boxOk">
+          Team: <b>${esc(teamName)}</b> [${esc(teamTag)}]<br/>
+          Slot: <b>#${slot}</b>
+        </div>
+      `
+      )
+    );
+  } catch (e) {
+    console.error("POST /register error:", e);
+    return res.send(
+      renderRegisterPage("Error", `<h1>Error</h1><div class="boxBad">Something went wrong.</div>`)
+    );
   }
-
-  await ensureListMessage(scrim).catch(() => {});
-  await updateTeamsListEmbed(q.scrimById.get(scrimId)).catch(() => {});
-
-  res.send(renderRegisterPage("Registered", `
-    <h1>Registered ✅</h1>
-    <div class="boxOk">
-      Team: <b>${esc(teamName)}</b> [${esc(teamTag)}]<br/>
-      Slot: <b>#${slot}</b>
-    </div>
-  `));
 });
+
+
+
 app.get("/scrims/:id/settings", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
