@@ -2103,19 +2103,14 @@ app.post("/scrims/new", requireLogin, async (req, res) => {
     confirmCloseAt
   );
 
-  // ✅ get the new scrim id (better-sqlite3)
+  // ✅ AUTO POST after create
   const newId = db.prepare("SELECT last_insert_rowid() AS id").get().id;
+  const fresh = q.scrimById.get(newId);
+  autoPostAll(fresh).catch(() => {});
 
-  // ✅ auto-post based on settings (does not block redirect)
-  try {
-    const fresh = q.scrimById.get(newId);
-    if (typeof autoPostAll === "function") {
-      autoPostAll(fresh).catch(() => {});
-    }
-  } catch {}
-
-  return res.redirect("/scrims");
+  res.redirect("/scrims");
 });
+
 
 
 // ✅ MANAGE SCRIM PAGE (THIS FIXES /scrims/:id)
@@ -2243,8 +2238,6 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
   <a class="btn2" href="/scrims/${scrimId}/settings">Settings</a>
   <a class="btn2" href="/scrims">Back</a>
 </div>
-await autoPostAll(scrim).catch(()=>{});
-
 
       <div class="teamCards">
         ${teamCards || `<div class="warn">No teams registered yet.</div>`}
