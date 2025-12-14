@@ -82,6 +82,19 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
+// ---------------------- RESULTS UPLOADS ---------------------- //
+const resultsDir = path.join(__dirname, "results_uploads");
+if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
+
+const resultsUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, resultsDir),
+    filename: (req, file, cb) => {
+      const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      cb(null, "res-" + unique + path.extname(file.originalname || ""));
+    },
+  }),
+});
 
 const templatesDir = path.join(__dirname, "templates");
 const generatedDir = path.join(__dirname, "generated");
@@ -379,6 +392,44 @@ const q = {
     confirm_close_at=?
   WHERE id=? AND guild_id=?
 `),
+  // auto post + reg message
+  setRegMessage: db.prepare("UPDATE scrims SET registration_channel_id = ?, registration_message_id = ? WHERE id = ?"),
+  setAutoPost: db.prepare(`
+    UPDATE scrims SET auto_post_reg=?, auto_post_list=?, auto_post_confirm=? WHERE id=? AND guild_id=?
+  `),
+
+  // ban channel
+  setBanChannel: db.prepare(`UPDATE scrims SET ban_channel_id=? WHERE id=? AND guild_id=?`),
+
+  // dynamic games
+  gamesByScrim: db.prepare(`SELECT * FROM scrim_games WHERE scrim_id=? ORDER BY idx ASC`),
+  ensureGame1: db.prepare(`
+    INSERT INTO scrim_games (scrim_id, idx, name)
+    VALUES (?, 1, 'Game 1')
+    ON CONFLICT(scrim_id, idx) DO NOTHING
+  `),
+  addGame: db.prepare(`
+    INSERT INTO scrim_games (scrim_id, idx, name)
+    VALUES (?, ?, ?)
+  `),
+
+  pointsByScrim: db.prepare(`
+    SELECT * FROM results_points WHERE scrim_id=? ORDER BY slot ASC, game_idx ASC
+  `),
+  upsertPoint: db.prepare(`
+    INSERT INTO results_points (scrim_id, slot, game_idx, points)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(scrim_id, slot, game_idx) DO UPDATE SET points=excluded.points
+  `),
+
+  screenshotsByScrim: db.prepare(`
+    SELECT * FROM result_screenshots WHERE scrim_id=? AND game_idx=? ORDER BY id DESC
+  `),
+  addScreenshot: db.prepare(`
+    INSERT INTO result_screenshots (scrim_id, game_idx, filename, uploaded_by)
+    VALUES (?, ?, ?, ?)
+  `),
+
 
 
 banByUser: db.prepare(`SELECT * FROM bans WHERE guild_id=? AND user_id=?`),
@@ -470,6 +521,15 @@ function getNextFreeSlot(scrimId, minSlot, maxSlot) {
   for (let s = minSlot; s <= maxSlot; s++) if (!used.has(s)) return s;
   return null;
 }
+function ensureGame1(scrimId){
+  try { q.ensureGame1.run(scrimId); } catch {}
+}
+
+function getMaxGameIdx(scrimId){
+  const games = q.gamesByScrim.all(scrimId);
+  if (!games.length) return 1;
+  return Math.max(...games.map(g=>g.idx));
+}
 
 // ---------------------- DISCORD BOT ---------------------- //
 const discord = new Client({
@@ -536,29 +596,33 @@ async function ensureConfirmMessage(scrim) {
 
 function buildRegEmbed(scrim, guild, teamsCount = 0) {
   const totalSlots = scrim.max_slot - scrim.min_slot + 1;
+  const open = !!scrim.registration_open;
+
   return new EmbedBuilder()
-    .setTitle(`📝 ${scrim.name} — REGISTRATION`)
-    .setColor(scrim.registration_open ? 0x5865f2 : 0xff4b4b)
+    .setColor(open ? 0x22c55e : 0xef4444)
+    .setAuthor({ name: "DarkSide Scrims", iconURL: DS.logoUrl || guild.iconURL({ size: 128 }) || undefined })
+    .setTitle(`📝 ${scrim.name}`)
     .setDescription(
       [
-        "━━━━━━━━━━━━━━━━━━━━",
-        `Status: ${scrim.registration_open ? "✅ OPEN" : "❌ CLOSED"}`,
-        `Slots: **${scrim.min_slot}-${scrim.max_slot}**`,
-        `Filled: **${teamsCount}/${totalSlots}**`,
+        `**Registration:** ${open ? "🟢 OPEN" : "🔴 CLOSED"}`,
+        `**Slots:** **${scrim.min_slot}-${scrim.max_slot}** • **Filled:** **${teamsCount}/${totalSlots}**`,
         "",
-        scrim.open_at ? `⏱ Open: **${scrim.open_at}**` : null,
-        scrim.close_at ? `⏱ Close: **${scrim.close_at}**` : null,
+        "⚡ **How to Register**",
+        "1) Click **Register Team**",
+        "2) You get a private link",
+        "3) Fill team name + tag + logo",
         "",
-        "**How it works**",
-        "• Click **Register Team**",
-        "• You get a private link",
-        "• One team per Discord account",
-        "━━━━━━━━━━━━━━━━━━━━",
+        scrim.open_at || scrim.close_at ? "⏱ **Schedule**" : null,
+        scrim.open_at ? `• Open: **${scrim.open_at}**` : null,
+        scrim.close_at ? `• Close: **${scrim.close_at}**` : null,
+        "",
+        `🆔 Scrim ID: **${scrim.id}**`,
       ].filter(Boolean).join("\n")
     )
-    .setFooter({ text: `DarkSide Scrims • Scrim ID ${scrim.id}` })
-    .setThumbnail(guild.iconURL({ size: 256 }));
+    .setFooter({ text: "DarkSideORG • Scrims Panel" })
+    .setTimestamp(new Date());
 }
+
 
 function buildRegComponents(scrim) {
   return [
@@ -576,35 +640,36 @@ function buildRegComponents(scrim) {
 async function updateConfirmEmbed(scrim) {
   if (!scrim.confirm_channel_id || !scrim.confirm_message_id) return;
 
-  const guild = await discord.guilds.fetch(scrim.guild_id);
+  const guild = await discord.guilds.fetch(scrim.guild_id).catch(()=>null);
+  if (!guild) return;
+
   const channel = await guild.channels.fetch(scrim.confirm_channel_id).catch(() => null);
-  if (!channel) return;
+  if (!channel || !channel.isTextBased()) return;
 
   const msg = await channel.messages.fetch(scrim.confirm_message_id).catch(() => null);
   if (!msg) return;
 
-  const statusLine = scrim.confirm_open ? "🟢 **CONFIRMS ARE OPEN**" : "🔴 **CONFIRMS ARE CLOSED**";
-
-  const timeBlock = [
-    scrim.confirm_open_at ? `⏱ **Open:** ${scrim.confirm_open_at}` : null,
-    scrim.confirm_close_at ? `⏳ **Close:** ${scrim.confirm_close_at}` : null,
-  ].filter(Boolean);
+  const open = !!scrim.confirm_open;
 
   const embed = new EmbedBuilder()
-    .setColor(scrim.confirm_open ? 0x22c55e : 0xef4444)
+    .setColor(open ? 0x22c55e : 0xef4444)
+    .setAuthor({ name: "DarkSide Scrims", iconURL: DS.logoUrl || guild.iconURL({ size: 128 }) || undefined })
     .setTitle(`✅ ${scrim.name} — CONFIRMATION`)
     .setDescription(
       [
-        statusLine,
+        `**Confirms:** ${open ? "🟢 OPEN" : "🔴 CLOSED"}`,
         "",
-        "Only teams that **registered** can confirm or drop.",
-        "If you confirm, your slot becomes **locked** ✅",
+        "✅ Confirm locks your slot",
+        "🗑️ Drop removes your slot",
         "",
-        timeBlock.length ? "**Schedule**" : null,
-        ...timeBlock,
+        scrim.confirm_open_at || scrim.confirm_close_at ? "⏱ **Schedule**" : null,
+        scrim.confirm_open_at ? `• Open: **${scrim.confirm_open_at}**` : null,
+        scrim.confirm_close_at ? `• Close: **${scrim.confirm_close_at}**` : null,
+        "",
+        `🆔 Scrim ID: **${scrim.id}**`,
       ].filter(Boolean).join("\n")
     )
-    .setFooter({ text: `DarkSide Scrims • Scrim ID: ${scrim.id}` })
+    .setFooter({ text: "DarkSideORG • Confirm System" })
     .setTimestamp(new Date());
 
   const row = new ActionRowBuilder().addComponents(
@@ -613,16 +678,59 @@ async function updateConfirmEmbed(scrim) {
       .setLabel("Confirm Slot")
       .setEmoji("✅")
       .setStyle(ButtonStyle.Success)
-      .setDisabled(!scrim.confirm_open),
+      .setDisabled(!open),
     new ButtonBuilder()
       .setCustomId(`drop:${scrim.id}`)
       .setLabel("Drop Slot")
       .setEmoji("🗑️")
       .setStyle(ButtonStyle.Danger)
-      .setDisabled(!scrim.confirm_open)
+      .setDisabled(!open)
   );
 
-  await msg.edit({ content: "", embeds: [embed], components: [row] });
+  await msg.edit({ content: "", embeds: [embed], components: [row] }).catch(()=>{});
+}
+
+async function ensureRegMessage(scrim) {
+  if (!scrim.registration_channel_id) return;
+  const guild = await discord.guilds.fetch(scrim.guild_id).catch(() => null);
+  if (!guild) return;
+  const channel = await guild.channels.fetch(scrim.registration_channel_id).catch(() => null);
+  if (!channel || !channel.isTextBased()) return;
+
+  const teams = q.teamsByScrim.all(scrim.id);
+
+  // create message if missing
+  if (!scrim.registration_message_id) {
+    const msg = await channel.send({ content: "Creating registration..." }).catch(()=>null);
+    if (!msg) return;
+    q.setRegMessage.run(scrim.registration_channel_id, msg.id, scrim.id);
+    scrim = q.scrimById.get(scrim.id);
+  }
+
+  const msg = await channel.messages.fetch(scrim.registration_message_id).catch(() => null);
+  if (!msg) {
+    // recreate if deleted
+    const newMsg = await channel.send({ content: "Recreating registration..." }).catch(()=>null);
+    if (!newMsg) return;
+    q.setRegMessage.run(scrim.registration_channel_id, newMsg.id, scrim.id);
+    scrim = q.scrimById.get(scrim.id);
+  }
+
+  const fresh = q.scrimById.get(scrim.id);
+  const embed = buildRegEmbed(fresh, guild, teams.length);
+  const components = buildRegComponents(fresh);
+
+  const finalMsg = await channel.messages.fetch(fresh.registration_message_id).catch(() => null);
+  if (finalMsg) await finalMsg.edit({ content: "", embeds: [embed], components }).catch(()=>{});
+}
+
+async function autoPostAll(scrim) {
+  const s = q.scrimById.get(scrim.id);
+  if (!s) return;
+
+  if (s.auto_post_reg) await ensureRegMessage(s).catch(()=>{});
+  if (s.auto_post_list) await ensureListMessage(s).catch(()=>{});
+  if (s.auto_post_confirm) await ensureConfirmMessage(s).catch(()=>{});
 }
 
 async function updateTeamsListEmbed(scrim) {
@@ -888,6 +996,7 @@ app.use(
 );
 
 app.use("/logos", express.static(uploadDir));
+app.use("/results", express.static(resultsDir));
 
 // ---------------------- HTML helpers ---------------------- //
 function esc(s = "") {
@@ -1787,7 +1896,9 @@ app.get("/scrims", requireLogin, (req, res) => {
       <td style="width:460px">
         <div class="row">
           <a class="btn2 primary" href="/scrims/${s.id}">Manage</a>
-          <a class="btn2" href="/scrims/${s.id}/results">Results</a>
+          <form method="POST" action="/scrims/${s.id}/clear" style="margin:0">
+  <button class="btn2" type="submit" onclick="return confirm('Clear ALL slots + results and remove team roles?')">Clear</button>
+</form>
 
           <form method="POST" action="/scrims/${s.id}/toggleReg" style="margin:0">
             <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
@@ -1843,7 +1954,10 @@ app.get("/scrims", requireLogin, (req, res) => {
                     <!-- Row 1: Manage + Results -->
                     <div class="cardActionsRow">
                       <a class="btn2 primary" href="/scrims/${s.id}">Manage</a>
-                      <a class="btn2" href="/scrims/${s.id}/results">Results</a>
+                      <form method="POST" action="/scrims/${s.id}/clear" style="margin:0">
+  <button class="btn2" type="submit" onclick="return confirm('Clear ALL slots + results and remove team roles?')">Clear</button>
+</form>
+
                     </div>
 
                     <!-- Row 2: Toggles -->
@@ -1919,8 +2033,44 @@ app.get("/scrims/new", requireLogin, (req, res) => {
   );
 });
 
+app.post("/scrims/:id/clear", requireLogin, async (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-app.post("/scrims/new", requireLogin, (req, res) => {
+  const teams = q.teamsByScrim.all(scrimId);
+
+  // remove team role from all registered users
+  if (scrim.team_role_id) {
+    try {
+      const guild = await discord.guilds.fetch(scrim.guild_id);
+      for (const t of teams) {
+        try {
+          const mem = await guild.members.fetch(t.owner_user_id);
+          await mem.roles.remove(scrim.team_role_id).catch(()=>{});
+        } catch {}
+      }
+    } catch {}
+  }
+
+  // delete teams + all results tables (cascade handles extra, but results_points not linked to teams)
+  db.prepare("DELETE FROM teams WHERE scrim_id=?").run(scrimId);
+  db.prepare("DELETE FROM results WHERE scrim_id=?").run(scrimId);
+  db.prepare("DELETE FROM results_points WHERE scrim_id=?").run(scrimId);
+
+  // close toggles
+  q.setRegOpen.run(0, scrimId, guildId);
+  q.setConfirmOpen.run(0, scrimId, guildId);
+
+  // refresh list/confirm/reg messages
+  const fresh = q.scrimById.get(scrimId);
+  await autoPostAll(fresh).catch(()=>{});
+
+  res.redirect("/scrims");
+});
+
+app.post("/scrims/new", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   if (!guildId) return res.redirect("/servers");
 
@@ -1953,8 +2103,20 @@ app.post("/scrims/new", requireLogin, (req, res) => {
     confirmCloseAt
   );
 
-  res.redirect("/scrims");
+  // ✅ get the new scrim id (better-sqlite3)
+  const newId = db.prepare("SELECT last_insert_rowid() AS id").get().id;
+
+  // ✅ auto-post based on settings (does not block redirect)
+  try {
+    const fresh = q.scrimById.get(newId);
+    if (typeof autoPostAll === "function") {
+      autoPostAll(fresh).catch(() => {});
+    }
+  } catch {}
+
+  return res.redirect("/scrims");
 });
+
 
 // ✅ MANAGE SCRIM PAGE (THIS FIXES /scrims/:id)
 // MANAGE SCRIM
@@ -2076,13 +2238,13 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
       </p>
 
       <div class="row" style="margin:12px 0">
-        <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0"><button class="btn2" type="submit">Post Reg</button></form>
-        <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post List</button></form>
-        <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post Confirm</button></form>
+  <a class="btn2 primary" href="/scrims/${scrimId}/results">Results</a>
+  <a class="btn2" href="/scrims/${scrimId}">Table</a>
+  <a class="btn2" href="/scrims/${scrimId}/settings">Settings</a>
+  <a class="btn2" href="/scrims">Back</a>
+</div>
+await autoPostAll(scrim).catch(()=>{});
 
-        <a class="btn2 primary" href="/scrims/${scrimId}/results">Results</a>
-        <a class="btn2" href="/scrims">Back</a>
-      </div>
 
       <div class="teamCards">
         ${teamCards || `<div class="warn">No teams registered yet.</div>`}
@@ -2477,39 +2639,42 @@ q.banUpsert.run(scrim.guild_id, team.owner_user_id, reason, expiresAt);
     } catch {}
   }
 
-  // ban log channel (optional)
-  if (guild && scrim.ban_channel_id) {
-    try {
-      const ch = await guild.channels.fetch(scrim.ban_channel_id).catch(() => null);
-      if (ch && ch.type === ChannelType.GuildText) {
-        const logoPath = team.logo_filename ? path.join(uploadDir, team.logo_filename) : null;
-        const hasLogo = logoPath && fs.existsSync(logoPath);
+// ban log channel (optional)
+if (guild && scrim.ban_channel_id) {
+  try {
+    const ch = await guild.channels.fetch(scrim.ban_channel_id).catch(() => null);
 
-        const embed = new EmbedBuilder()
-          .setTitle("⛔ Team Banned")
-          .setColor(0xef4444)
-          .addFields(
-            { name: "Team", value: `**${team.team_name}** [**${team.team_tag}**]`, inline: false },
-            { name: "User ID", value: `\`${team.owner_user_id}\``, inline: true },
-            { name: "Reason", value: reason || "—", inline: true },
-            { name: "Duration", value: expiresAt ? banTimeLeft(expiresAt) : "Permanent", inline: true }
-          )
-          .setFooter({ text: `DarkSide Scrims • Scrim ${scrim.id} • Slot #${team.slot}` })
-          .setTimestamp(new Date());
+    // ✅ allow ANY text-based channel (text, news, thread, etc.)
+    if (ch && typeof ch.isTextBased === "function" && ch.isTextBased()) {
+      const logoPath = team.logo_filename ? path.join(uploadDir, team.logo_filename) : null;
+      const hasLogo = logoPath && fs.existsSync(logoPath);
 
-        const payload = { embeds: [embed] };
+      const embed = new EmbedBuilder()
+        .setTitle("⛔ Team Banned")
+        .setColor(0xef4444)
+        .addFields(
+          { name: "Team", value: `**${team.team_name}** [**${team.team_tag}**]`, inline: false },
+          { name: "User ID", value: `\`${team.owner_user_id}\``, inline: true },
+          { name: "Reason", value: reason || "—", inline: true },
+          { name: "Duration", value: expiresAt ? banTimeLeft(expiresAt) : "Permanent", inline: true }
+        )
+        .setFooter({ text: `DarkSide Scrims • Scrim ${scrim.id} • Slot #${team.slot}` })
+        .setTimestamp(new Date());
 
-        if (hasLogo) {
-          payload.files = [{ attachment: logoPath, name: "teamlogo.png" }];
-          embed.setThumbnail("attachment://teamlogo.png");
-        }
+      const payload = { embeds: [embed] };
 
-        await ch.send(payload);
+      if (hasLogo) {
+        payload.files = [{ attachment: logoPath, name: "teamlogo.png" }];
+        embed.setThumbnail("attachment://teamlogo.png");
       }
-    } catch (e) {
-      console.error("ban log send error:", e);
+
+      await ch.send(payload);
     }
+  } catch (e) {
+    console.error("ban log send error:", e);
   }
+}
+
 
   // remove their slot after ban (recommended)
   q.removeTeamByUser.run(scrimId, team.owner_user_id);
@@ -2552,44 +2717,99 @@ app.get("/scrims/:id/results", requireLogin, (req, res) => {
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
+  ensureGame1(scrimId);
+  const games = q.gamesByScrim.all(scrimId);
   const teams = q.teamsByScrim.all(scrimId);
-  const results = q.resultsByScrim.all(scrimId);
-  const bySlot = new Map(results.map((r) => [r.slot, r]));
 
-  const rows = teams
-    .map((t) => {
-      const r = bySlot.get(t.slot) || { game1: 0, game2: 0, game3: 0, game4: 0 };
-      return `
+  const pointsRows = q.pointsByScrim.all(scrimId);
+  const pointMap = new Map(pointsRows.map(p => [`${p.slot}:${p.game_idx}`, p.points]));
+
+  const headCols = games.map(g => `<th>G${g.idx}</th>`).join("");
+
+  const rows = teams.map(t => {
+    const cols = games.map(g => {
+      const v = pointMap.get(`${t.slot}:${g.idx}`) ?? 0;
+      return `<td><input name="p_${t.slot}_${g.idx}" type="number" value="${v}" /></td>`;
+    }).join("");
+
+    return `
       <tr>
         <td>#${t.slot}</td>
         <td><b>${esc(t.team_name)}</b> <span class="muted">[${esc(t.team_tag)}]</span></td>
-        <td><input name="g1_${t.slot}" type="number" value="${r.game1 || 0}"/></td>
-        <td><input name="g2_${t.slot}" type="number" value="${r.game2 || 0}"/></td>
-        <td><input name="g3_${t.slot}" type="number" value="${r.game3 || 0}"/></td>
-        <td><input name="g4_${t.slot}" type="number" value="${r.game4 || 0}"/></td>
-      </tr>`;
-    })
-    .join("");
+        ${cols}
+      </tr>
+    `;
+  }).join("");
 
-  res.send(
-    renderLayout({
-      title: "Results",
-      user: req.session.user,
-      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
-      active: "scrims",
-      body: `
-        <h2 class="h">${esc(scrim.name)} — Results</h2>
-        <form method="POST" action="/scrims/${scrimId}/results">
-          <table>
-            <thead><tr><th>Slot</th><th>Team</th><th>G1</th><th>G2</th><th>G3</th><th>G4</th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="6">No teams yet.</td></tr>`}</tbody>
-          </table>
-          <div style="margin-top:12px"><button type="submit">Save Results</button></div>
+  res.send(renderLayout({
+    title: "Results",
+    user: req.session.user,
+    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+    active: "scrims",
+    body: `
+      <h2 class="h">${esc(scrim.name)} — Results</h2>
+
+      <div class="row" style="margin:12px 0">
+        <form method="POST" action="/scrims/${scrimId}/results/addGame" style="margin:0">
+          <button class="btn2" type="submit">➕ Add Game</button>
         </form>
-      `,
-    })
-  );
+        <a class="btn2" href="/scrims/${scrimId}">Back to Table</a>
+        <a class="btn2" href="/scrims/${scrimId}/settings">Settings</a>
+      </div>
+
+      <form method="POST" action="/scrims/${scrimId}/results">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Slot</th><th>Team</th>${headCols}</tr></thead>
+            <tbody>${rows || `<tr><td colspan="${2 + games.length}">No teams yet.</td></tr>`}</tbody>
+          </table>
+        </div>
+        <div style="margin-top:12px">
+          <button type="submit">Save Results</button>
+        </div>
+      </form>
+
+      <hr style="margin:18px 0;opacity:.2"/>
+
+      <h3 class="h" style="font-size:14px">Screenshots (per game)</h3>
+      ${games.map(g=>{
+        const shots = q.screenshotsByScrim.all(scrimId, g.idx);
+        return `
+          <div style="margin:14px 0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(15,23,42,.55)">
+            <div class="muted" style="margin-bottom:8px">Game ${g.idx} screenshots</div>
+            <form method="POST" action="/scrims/${scrimId}/results/${g.idx}/upload" enctype="multipart/form-data">
+              <input type="file" name="shots" multiple accept="image/png,image/jpeg,image/jpg" />
+              <button class="btn2" type="submit" style="margin-top:10px">Upload</button>
+            </form>
+            <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+              ${shots.slice(0,12).map(s=>`
+                <a href="/results/${esc(s.filename)}" target="_blank" class="btn2" style="padding:6px 10px;border-radius:10px">
+                  🖼️ ${esc(s.filename)}
+                </a>
+              `).join("") || `<div class="muted">No uploads yet.</div>`}
+            </div>
+          </div>
+        `;
+      }).join("")}
+    `
+  }));
 });
+app.post("/scrims/:id/results/addGame", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  ensureGame1(scrimId);
+  const next = getMaxGameIdx(scrimId) + 1;
+
+  try {
+    q.addGame.run(scrimId, next, `Game ${next}`);
+  } catch {}
+
+  res.redirect(`/scrims/${scrimId}/results`);
+});
+
 
 app.post("/scrims/:id/results", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -2597,16 +2817,35 @@ app.post("/scrims/:id/results", requireLogin, (req, res) => {
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
+  ensureGame1(scrimId);
+  const games = q.gamesByScrim.all(scrimId);
   const teams = q.teamsByScrim.all(scrimId);
+
   for (const t of teams) {
-    const g1 = Number(req.body[`g1_${t.slot}`] || 0);
-    const g2 = Number(req.body[`g2_${t.slot}`] || 0);
-    const g3 = Number(req.body[`g3_${t.slot}`] || 0);
-    const g4 = Number(req.body[`g4_${t.slot}`] || 0);
-    q.upsertResults.run(scrimId, t.slot, g1, g2, g3, g4);
+    for (const g of games) {
+      const key = `p_${t.slot}_${g.idx}`;
+      const val = Number(req.body[key] || 0);
+      q.upsertPoint.run(scrimId, t.slot, g.idx, val);
+    }
   }
+
   res.redirect(`/scrims/${scrimId}/results`);
 });
+app.post("/scrims/:id/results/:gameIdx/upload", requireLogin, resultsUpload.array("shots", 20), (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const gameIdx = Number(req.params.gameIdx);
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  const files = req.files || [];
+  for (const f of files) {
+    q.addScreenshot.run(scrimId, gameIdx, f.filename, req.session.user?.id || null);
+  }
+
+  res.redirect(`/scrims/${scrimId}/results`);
+});
+
 
 // ---------------------- PUBLIC REGISTRATION ---------------------- //
 function renderRegisterPage(title, inner) {
@@ -2891,6 +3130,32 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
 
         <label>Confirm Channel ID</label>
         <input name="confirmChannelId" value="${esc(scrim.confirm_channel_id || "")}" placeholder="123..." />
+        <label>Ban Log Channel ID (where bans will be posted)</label>
+        <input name="banChannelId" value="${esc(scrim.ban_channel_id || "")}" placeholder="123..." />
+        <label>Auto Post Messages</label>
+<div class="row">
+  <div>
+    <label style="margin-top:0">Auto Post Registration</label>
+    <select name="autoPostReg">
+      <option value="1" ${scrim.auto_post_reg ? "selected":""}>ON</option>
+      <option value="0" ${scrim.auto_post_reg ? "": "selected"}>OFF</option>
+    </select>
+  </div>
+  <div>
+    <label style="margin-top:0">Auto Post Team List</label>
+    <select name="autoPostList">
+      <option value="1" ${scrim.auto_post_list ? "selected":""}>ON</option>
+      <option value="0" ${scrim.auto_post_list ? "": "selected"}>OFF</option>
+    </select>
+  </div>
+  <div>
+    <label style="margin-top:0">Auto Post Confirm</label>
+    <select name="autoPostConfirm">
+      <option value="1" ${scrim.auto_post_confirm ? "selected":""}>ON</option>
+      <option value="0" ${scrim.auto_post_confirm ? "": "selected"}>OFF</option>
+    </select>
+  </div>
+</div>
 
         <label>Team Role ID (auto give on register)</label>
         <input name="teamRoleId" value="${esc(scrim.team_role_id || "")}" placeholder="123..." />
@@ -2912,6 +3177,59 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
           <button type="submit">Save Settings</button>
           <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}">Back</a>
         </div>
+        <label>Auto Post Messages</label>
+<div class="row">
+  <div>
+    <label style="margin-top:0">Auto Post Registration</label>
+    <select name="autoPostReg">
+      <option value="1" ${scrim.auto_post_reg ? "selected":""}>ON</option>
+      <option value="0" ${scrim.auto_post_reg ? "": "selected"}>OFF</option>
+    </select>
+  </div>
+  <div>
+    <label style="margin-top:0">Auto Post Team List</label>
+    <select name="autoPostList">
+      <option value="1" ${scrim.auto_post_list ? "selected":""}>ON</option>
+      <option value="0" ${scrim.auto_post_list ? "": "selected"}>OFF</option>
+    </select>
+  </div>
+  <div>
+    <label style="margin-top:0">Auto Post Confirm</label>
+    <select name="autoPostConfirm">
+      <option value="1" ${scrim.auto_post_confirm ? "selected":""}>ON</option>
+      <option value="0" ${scrim.auto_post_confirm ? "": "selected"}>OFF</option>
+    </select>
+  </div>
+</div>
+<hr style="margin:18px 0;opacity:.2"/>
+
+<h3 class="h" style="font-size:14px">Slots Posting</h3>
+<label>Slots Channel ID</label>
+<input name="slotsChannelId" value="${esc(scrim.slots_channel_id || "")}" placeholder="123..." />
+
+<label>Slot Template</label>
+<select name="slotTemplate" style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
+  <option value="">-- choose --</option>
+  ${listTemplates().map(t => `<option value="${esc(t)}" ${scrim.slot_template===t?"selected":""}>${esc(t)}</option>`).join("")}
+</select>
+
+<label>Spam Mode</label>
+<select name="slotsSpam" style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
+  <option value="0" ${scrim.slots_spam ? "" : "selected"}>OFF (one message)</option>
+  <option value="1" ${scrim.slots_spam ? "selected" : ""}>ON (post every slot)</option>
+</select>
+
+<div class="row" style="margin-top:12px">
+  <button class="btn2" type="submit">Save Settings</button>
+  <form method="POST" action="/scrims/${scrimId}/postSlots" style="margin:0">
+    <button class="btn2 primary" type="submit">Post Slots Now</button>
+  </form>
+</div>
+<hr style="margin:18px 0;opacity:.2"/>
+<form method="POST" action="/scrims/${scrimId}/delete" onsubmit="return confirm('DELETE this scrim forever?')">
+  <button class="btn2" type="submit" style="width:100%">Delete Scrim</button>
+</form>
+
       </form>
     `
   }));
@@ -2933,6 +3251,15 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   const closeAt = String(req.body.closeAt || "").trim() || null;
   const confirmOpenAt = String(req.body.confirmOpenAt || "").trim() || null;
   const confirmCloseAt = String(req.body.confirmCloseAt || "").trim() || null;
+  const banChannelId = String(req.body.banChannelId || "").trim() || null;
+
+  const autoPostReg = Number(req.body.autoPostReg || 0) ? 1 : 0;
+  const autoPostList = Number(req.body.autoPostList || 0) ? 1 : 0;
+  const autoPostConfirm = Number(req.body.autoPostConfirm || 0) ? 1 : 0;
+
+  const slotsChannelId = String(req.body.slotsChannelId || "").trim() || null;
+  const slotTemplate = String(req.body.slotTemplate || "").trim() || null;
+  const slotsSpam = Number(req.body.slotsSpam || 0) ? 1 : 0;
 
   q.updateScrimSettings.run(
     registrationChannelId,
@@ -2946,10 +3273,26 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
     confirmCloseAt,
     scrimId,
     guildId
-  );
+  ),
+  q.setBanChannel.run(banChannelId, scrimId, guildId);
+  q.setAutoPost.run(autoPostReg, autoPostList, autoPostConfirm, scrimId, guildId);
+  q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
+
+  const fresh = q.scrimById.get(scrimId);
+  await autoPostAll(fresh).catch(()=>{});
 
   res.redirect(`/scrims/${scrimId}`);
 });
+app.post("/scrims/:id/delete", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  db.prepare("DELETE FROM scrims WHERE id=? AND guild_id=?").run(scrimId, guildId);
+  res.redirect("/scrims");
+});
+
 
 // HEALTH
 app.get("/health", (req, res) => res.json({ ok: true }));
