@@ -3279,7 +3279,7 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
 
   const fresh = q.scrimById.get(scrimId);
-  await autoPostAll(fresh).catch(()=>{});
+autoPostAll(fresh).catch(() => {});
 
   res.redirect(`/scrims/${scrimId}`);
 });
