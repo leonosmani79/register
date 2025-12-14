@@ -431,9 +431,6 @@ const q = {
   `),
 
 
-
-banByUser: db.prepare(`SELECT * FROM bans WHERE guild_id=? AND user_id=?`),
-
   createScrim: db.prepare(`
     INSERT INTO scrims (
       guild_id, name, min_slot, max_slot,
@@ -482,9 +479,6 @@ setConfirmedByTeamId: db.prepare(`
   unban: db.prepare(`DELETE FROM bans WHERE guild_id=? AND user_id=?`),
 
 isBanned: db.prepare(`SELECT 1 FROM bans WHERE guild_id = ? AND user_id = ?`),
-bansByGuild: db.prepare(`SELECT * FROM bans WHERE guild_id = ? ORDER BY id DESC`),
-unban: db.prepare(`DELETE FROM bans WHERE guild_id = ? AND user_id = ?`),
-
 
   setRegOpen: db.prepare("UPDATE scrims SET registration_open = ? WHERE id = ? AND guild_id = ?"),
   setConfirmOpen: db.prepare("UPDATE scrims SET confirm_open = ? WHERE id = ? AND guild_id = ?"),
@@ -582,16 +576,23 @@ async function ensureListMessage(scrim) {
 
 async function ensureConfirmMessage(scrim) {
   if (!scrim.confirm_channel_id) return;
-  const guild = await discord.guilds.fetch(scrim.guild_id);
+
+  const guild = await discord.guilds.fetch(scrim.guild_id).catch(() => null);
+  if (!guild) return;
+
   const channel = await guild.channels.fetch(scrim.confirm_channel_id).catch(() => null);
-  if (!channel || channel.type !== ChannelType.GuildText) return;
+
+  // ✅ allow ANY text-based channel
+  if (!channel || !channel.isTextBased()) return;
 
   if (!scrim.confirm_message_id) {
-    const msg = await channel.send({ content: "Creating confirms..." });
+    const msg = await channel.send({ content: "Creating confirms..." }).catch(() => null);
+    if (!msg) return;
     q.setConfirmMessage.run(scrim.confirm_channel_id, msg.id, scrim.id);
     scrim = q.scrimById.get(scrim.id);
   }
-  await updateConfirmEmbed(scrim);
+
+  await updateConfirmEmbed(scrim).catch(() => {});
 }
 
 function buildRegEmbed(scrim, guild, teamsCount = 0) {
@@ -852,10 +853,13 @@ async function updateTeamsListEmbed(scrim) {
     );
 
     // edit the correct message (if recreated, scrim was refreshed above)
-    const finalMsg = await channel.messages.fetch(scrim.list_message_id).catch(() => null);
-    if (!finalMsg) return;
+// ✅ always re-fetch after any possible recreation
+const latest = q.scrimById.get(scrim.id);
+const finalMsg = await channel.messages.fetch(latest.list_message_id).catch(() => null);
+if (!finalMsg) return;
 
-    await finalMsg.edit({ content: "", embeds: [embed], components });
+await finalMsg.edit({ content: "", embeds: [embed], components });
+
 
     console.log("updateTeamsListEmbed: updated OK", { scrimId: scrim.id });
   } catch (e) {
@@ -2314,8 +2318,9 @@ app.post("/scrims/:id/slotSettings", requireLogin, (req, res) => {
   const slotsSpam = Number(req.body.slots_spam || 0) ? 1 : 0;
 
   q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
-  res.redirect(`/scrims/${scrimId}`);
+  res.redirect(`/scrims/${scrimId}/slots`);
 });
+
 
 // ---------------------- PANEL ACTION ROUTES ---------------------- //
 app.post("/scrims/:id/edit", requireLogin, (req, res) => {
@@ -2369,11 +2374,11 @@ app.post("/scrims/:id/toggleReg", requireLogin, async (req, res) => {
   q.setRegOpen.run(next, scrimId, guildId);
 
   const fresh = q.scrimById.get(scrimId);
-  await updateTeamsListEmbed(fresh).catch(() => {});
-  await updateConfirmEmbed(fresh).catch(() => {});
-  res.redirect("/scrims");
+  await autoPostAll(fresh).catch(() => {});
 
+  res.redirect("/scrims");
 });
+
 
 app.post("/scrims/:id/toggleConfirm", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -2386,11 +2391,11 @@ app.post("/scrims/:id/toggleConfirm", requireLogin, async (req, res) => {
   q.setConfirmOpen.run(next, scrimId, guildId);
 
   const fresh = q.scrimById.get(scrimId);
-  await updateTeamsListEmbed(fresh).catch(() => {});
-  await updateConfirmEmbed(fresh).catch(() => {});
-  res.redirect("/scrims");
+  await autoPostAll(fresh).catch(() => {});
 
+  res.redirect("/scrims");
 });
+
 
 app.post("/scrims/:id/postRegMessage", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
@@ -2456,34 +2461,37 @@ app.get("/scrims/:id/slots", requireLogin, (req, res) => {
     selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
     active: "scrims",
     body: `
-      <h2 class="h">Slots — ${esc(scrim.name)}</h2>
-      <p class="muted">Choose a GIF template and where to post the slot GIFs.</p>
+  <h2 class="h">Slots — ${esc(scrim.name)}</h2>
+  <p class="muted">Choose a GIF template and where to post the slot GIFs.</p>
 
-      <form method="POST" action="/scrims/${scrimId}/slotsSettings">
-        <label>Slots Channel ID</label>
-        <input name="slotsChannelId" value="${esc(scrim.slots_channel_id || "")}" placeholder="channel id" />
+  <form method="POST" action="/scrims/${scrimId}/slotSettings">
+    <label>Slots Channel ID</label>
+    <input name="slots_channel_id" value="${esc(scrim.slots_channel_id || "")}" placeholder="channel id" />
 
-        <label>Template</label>
-        <select name="slotTemplate" style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
-          <option value="">-- choose --</option>
-          ${options}
-        </select>
+    <label>Template</label>
+    <select name="slot_template"
+      style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
+      <option value="">-- choose --</option>
+      ${options}
+    </select>
 
-        <label>Spam Mode</label>
-        <select name="slotsSpam" style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
-          <option value="0" ${scrim.slots_spam ? "" : "selected"}>OFF (one message)</option>
-          <option value="1" ${scrim.slots_spam ? "selected" : ""}>ON (post every slot)</option>
-        </select>
+    <label>Spam Mode</label>
+    <select name="slots_spam"
+      style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
+      <option value="0" ${scrim.slots_spam ? "" : "selected"}>OFF (one message)</option>
+      <option value="1" ${scrim.slots_spam ? "selected" : ""}>ON (post every slot)</option>
+    </select>
 
-        <button type="submit" style="margin-top:12px">Save Slot Settings</button>
-      </form>
+    <button class="btn2 primary" type="submit" style="margin-top:12px">Save Slot Settings</button>
+  </form>
 
-      <hr class="hr"/>
+  <hr style="margin:18px 0;opacity:.2"/>
 
-      <form method="POST" action="/scrims/${scrimId}/postSlots" style="margin:0">
-        <button type="submit">🎞️ Post Slots Now</button>
-      </form>
-    `
+  <form method="POST" action="/scrims/${scrimId}/postSlots" style="margin:0">
+    <button class="btn2" type="submit">🎞️ Post Slots Now</button>
+  </form>
+`
+
   }));
 });
 
@@ -2500,7 +2508,7 @@ app.post("/scrims/:id/postSlots", requireLogin, async (req, res) => {
   try {
     const guild = await discord.guilds.fetch(scrim.guild_id);
     const chan = await guild.channels.fetch(scrim.slots_channel_id).catch(() => null);
-    if (!chan || chan.type !== ChannelType.GuildText) return res.status(400).send("Slots channel invalid.");
+if (!chan || !chan.isTextBased()) return res.status(400).send("Slots channel invalid.");
 
     const teams = q.teamsByScrim.all(scrimId);
     const bySlot = new Map(teams.map((t) => [t.slot, t]));
@@ -3105,128 +3113,190 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  res.send(renderLayout({
-    title: `Settings • ${scrim.name}`,
-    user: req.session.user,
-    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
-    active: "scrims",
-    body: `
-      <h2 class="h">${esc(scrim.name)} — Settings</h2>
-      <p class="muted">Set channels/roles used by the bot for this scrim.</p>
+  // ✅ safe templates list (won't crash page)
+  let templates = [];
+  try {
+    const t = typeof listTemplates === "function" ? listTemplates() : [];
+    templates = Array.isArray(t) ? t : [];
+  } catch (e) {
+    templates = [];
+  }
 
-      <form method="POST" action="/scrims/${scrimId}/settings">
-        <label>Registration Channel ID</label>
-        <input name="registrationChannelId" value="${esc(scrim.registration_channel_id || "")}" placeholder="123..." />
+  // ✅ normalize spam to boolean
+  const slotsSpamOn =
+    scrim.slots_spam === 1 ||
+    scrim.slots_spam === "1" ||
+    scrim.slots_spam === true;
 
-        <label>List Channel ID</label>
-        <input name="listChannelId" value="${esc(scrim.list_channel_id || "")}" placeholder="123..." />
+  res.send(
+    renderLayout({
+      title: `Settings • ${scrim.name}`,
+      user: req.session.user,
+      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+      active: "scrims",
+      body: `
+        <h2 class="h">${esc(scrim.name)} — Settings</h2>
+        <p class="muted">Set channels/roles used by the bot for this scrim.</p>
 
-        <label>Confirm Channel ID</label>
-        <input name="confirmChannelId" value="${esc(scrim.confirm_channel_id || "")}" placeholder="123..." />
-        <label>Ban Log Channel ID (where bans will be posted)</label>
-        <input name="banChannelId" value="${esc(scrim.ban_channel_id || "")}" placeholder="123..." />
-        <label>Auto Post Messages</label>
-<div class="row">
-  <div>
-    <label style="margin-top:0">Auto Post Registration</label>
-    <select name="autoPostReg">
-      <option value="1" ${scrim.auto_post_reg ? "selected":""}>ON</option>
-      <option value="0" ${scrim.auto_post_reg ? "": "selected"}>OFF</option>
-    </select>
-  </div>
-  <div>
-    <label style="margin-top:0">Auto Post Team List</label>
-    <select name="autoPostList">
-      <option value="1" ${scrim.auto_post_list ? "selected":""}>ON</option>
-      <option value="0" ${scrim.auto_post_list ? "": "selected"}>OFF</option>
-    </select>
-  </div>
-  <div>
-    <label style="margin-top:0">Auto Post Confirm</label>
-    <select name="autoPostConfirm">
-      <option value="1" ${scrim.auto_post_confirm ? "selected":""}>ON</option>
-      <option value="0" ${scrim.auto_post_confirm ? "": "selected"}>OFF</option>
-    </select>
-  </div>
-</div>
+        <form method="POST" action="/scrims/${scrimId}/settings">
 
-        <label>Team Role ID (auto give on register)</label>
-        <input name="teamRoleId" value="${esc(scrim.team_role_id || "")}" placeholder="123..." />
+          <label>Registration Channel ID</label>
+          <input name="registrationChannelId" value="${esc(scrim.registration_channel_id || "")}" placeholder="123..." />
 
-        <label>Ban Role ID (given on ban, blocks register)</label>
-        <input name="banRoleId" value="${esc(scrim.ban_role_id || "")}" placeholder="123..." />
+          <label>List Channel ID</label>
+          <input name="listChannelId" value="${esc(scrim.list_channel_id || "")}" placeholder="123..." />
 
-        <div class="row">
-          <div><label>Reg Open Time (text)</label><input name="openAt" value="${esc(scrim.open_at || "")}" placeholder="18:00 CET"/></div>
-          <div><label>Reg Close Time (text)</label><input name="closeAt" value="${esc(scrim.close_at || "")}" placeholder="18:15 CET"/></div>
-        </div>
+          <label>Confirm Channel ID</label>
+          <input name="confirmChannelId" value="${esc(scrim.confirm_channel_id || "")}" placeholder="123..." />
 
-        <div class="row">
-          <div><label>Confirm Open Time</label><input name="confirmOpenAt" value="${esc(scrim.confirm_open_at || "")}" placeholder="18:20 CET"/></div>
-          <div><label>Confirm Close Time</label><input name="confirmCloseAt" value="${esc(scrim.confirm_close_at || "")}" placeholder="18:30 CET"/></div>
-        </div>
+          <label>Ban Log Channel ID (where bans will be posted)</label>
+          <input name="banChannelId" value="${esc(scrim.ban_channel_id || "")}" placeholder="123..." />
 
-        <div style="margin-top:12px" class="row">
-          <button type="submit">Save Settings</button>
-          <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}">Back</a>
-        </div>
-        <label>Auto Post Messages</label>
-<div class="row">
-  <div>
-    <label style="margin-top:0">Auto Post Registration</label>
-    <select name="autoPostReg">
-      <option value="1" ${scrim.auto_post_reg ? "selected":""}>ON</option>
-      <option value="0" ${scrim.auto_post_reg ? "": "selected"}>OFF</option>
-    </select>
-  </div>
-  <div>
-    <label style="margin-top:0">Auto Post Team List</label>
-    <select name="autoPostList">
-      <option value="1" ${scrim.auto_post_list ? "selected":""}>ON</option>
-      <option value="0" ${scrim.auto_post_list ? "": "selected"}>OFF</option>
-    </select>
-  </div>
-  <div>
-    <label style="margin-top:0">Auto Post Confirm</label>
-    <select name="autoPostConfirm">
-      <option value="1" ${scrim.auto_post_confirm ? "selected":""}>ON</option>
-      <option value="0" ${scrim.auto_post_confirm ? "": "selected"}>OFF</option>
-    </select>
-  </div>
-</div>
-<hr style="margin:18px 0;opacity:.2"/>
+          <label>Auto Post Messages</label>
+          <div class="row">
+            <div>
+              <label style="margin-top:0">Auto Post Registration</label>
+              <select name="autoPostReg">
+                <option value="1" ${scrim.auto_post_reg ? "selected" : ""}>ON</option>
+                <option value="0" ${scrim.auto_post_reg ? "" : "selected"}>OFF</option>
+              </select>
+            </div>
+            <div>
+              <label style="margin-top:0">Auto Post Team List</label>
+              <select name="autoPostList">
+                <option value="1" ${scrim.auto_post_list ? "selected" : ""}>ON</option>
+                <option value="0" ${scrim.auto_post_list ? "" : "selected"}>OFF</option>
+              </select>
+            </div>
+            <div>
+              <label style="margin-top:0">Auto Post Confirm</label>
+              <select name="autoPostConfirm">
+                <option value="1" ${scrim.auto_post_confirm ? "selected" : ""}>ON</option>
+                <option value="0" ${scrim.auto_post_confirm ? "" : "selected"}>OFF</option>
+              </select>
+            </div>
+          </div>
 
-<h3 class="h" style="font-size:14px">Slots Posting</h3>
-<label>Slots Channel ID</label>
-<input name="slotsChannelId" value="${esc(scrim.slots_channel_id || "")}" placeholder="123..." />
+          <label>Team Role ID (auto give on register)</label>
+          <input name="teamRoleId" value="${esc(scrim.team_role_id || "")}" placeholder="123..." />
 
-<label>Slot Template</label>
-<select name="slotTemplate" style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
-  <option value="">-- choose --</option>
-  ${listTemplates().map(t => `<option value="${esc(t)}" ${scrim.slot_template===t?"selected":""}>${esc(t)}</option>`).join("")}
-</select>
+          <label>Ban Role ID (given on ban, blocks register)</label>
+          <input name="banRoleId" value="${esc(scrim.ban_role_id || "")}" placeholder="123..." />
 
-<label>Spam Mode</label>
-<select name="slotsSpam" style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
-  <option value="0" ${scrim.slots_spam ? "" : "selected"}>OFF (one message)</option>
-  <option value="1" ${scrim.slots_spam ? "selected" : ""}>ON (post every slot)</option>
-</select>
+          <div class="row">
+            <div>
+              <label>Reg Open Time (text)</label>
+              <input name="openAt" value="${esc(scrim.open_at || "")}" placeholder="18:00 CET" />
+            </div>
+            <div>
+              <label>Reg Close Time (text)</label>
+              <input name="closeAt" value="${esc(scrim.close_at || "")}" placeholder="18:15 CET" />
+            </div>
+          </div>
 
-<div class="row" style="margin-top:12px">
-  <button class="btn2" type="submit">Save Settings</button>
-  <form method="POST" action="/scrims/${scrimId}/postSlots" style="margin:0">
-    <button class="btn2 primary" type="submit">Post Slots Now</button>
-  </form>
-</div>
-<hr style="margin:18px 0;opacity:.2"/>
-<form method="POST" action="/scrims/${scrimId}/delete" onsubmit="return confirm('DELETE this scrim forever?')">
-  <button class="btn2" type="submit" style="width:100%">Delete Scrim</button>
-</form>
+          <div class="row">
+            <div>
+              <label>Confirm Open Time</label>
+              <input name="confirmOpenAt" value="${esc(scrim.confirm_open_at || "")}" placeholder="18:20 CET" />
+            </div>
+            <div>
+              <label>Confirm Close Time</label>
+              <input name="confirmCloseAt" value="${esc(scrim.confirm_close_at || "")}" placeholder="18:30 CET" />
+            </div>
+          </div>
 
-      </form>
-    `
-  }));
+          <hr style="margin:18px 0;opacity:.2"/>
+
+          <h3 class="h" style="font-size:14px">Slots Posting</h3>
+
+          <label>Slots Channel ID</label>
+          <input name="slotsChannelId" value="${esc(scrim.slots_channel_id || "")}" placeholder="123..." />
+
+          <label>Slot Template</label>
+          <select name="slotTemplate"
+            style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
+            <option value="">-- choose --</option>
+            ${templates.map(t => `
+              <option value="${esc(t)}" ${scrim.slot_template === t ? "selected" : ""}>${esc(t)}</option>
+            `).join("")}
+          </select>
+
+          <label>Spam Mode</label>
+          <select name="slotsSpam"
+            style="width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)">
+            <option value="0" ${slotsSpamOn ? "" : "selected"}>OFF (one message)</option>
+            <option value="1" ${slotsSpamOn ? "selected" : ""}>ON (post every slot)</option>
+          </select>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn2 primary" type="submit">Save Settings</button>
+
+            <a class="btn2" style="text-align:center;display:inline-flex" href="/scrims/${scrimId}">Back</a>
+
+            <button class="btn2" type="submit"
+              formaction="/scrims/${scrimId}/postSlots"
+              formmethod="POST">
+              🎞️ Post Slots Now
+            </button>
+
+            <button class="btn2" type="submit"
+              formaction="/scrims/${scrimId}/delete"
+              formmethod="POST"
+              onclick="return confirm('DELETE this scrim forever?')">
+              Delete Scrim
+            </button>
+          </div>
+
+        </form>
+      `,
+    })
+  );
 });
+app.get("/scrims/:id/postSlotsNow", requireLogin, async (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  // call your existing POST logic by redirecting to POST route via fetch is hard,
+  // so just duplicate minimal:
+  try {
+    if (!scrim.slot_template || !scrim.slots_channel_id) return res.redirect(`/scrims/${scrimId}/settings`);
+
+    const guild = await discord.guilds.fetch(scrim.guild_id);
+    const chan = await guild.channels.fetch(scrim.slots_channel_id).catch(() => null);
+    if (!chan || !chan.isTextBased()) return res.redirect(`/scrims/${scrimId}/settings`);
+
+    const teams = q.teamsByScrim.all(scrimId);
+    const bySlot = new Map(teams.map((t) => [t.slot, t]));
+
+    const sends = [];
+    for (let slot = scrim.min_slot; slot <= scrim.max_slot; slot++) {
+      const t = bySlot.get(slot);
+      const name = t ? t.team_name : "EMPTY";
+      const tag = t ? t.team_tag : "";
+
+      const filePath = await renderSlotGif({
+        templateKey: scrim.slot_template,
+        scrimId,
+        slot,
+        teamName: name,
+        teamTag: tag,
+      });
+
+      if (scrim.slots_spam) sends.push(chan.send({ files: [filePath] }));
+      else { await chan.send({ files: [filePath] }); break; }
+    }
+
+    if (scrim.slots_spam) await Promise.allSettled(sends);
+  } catch (e) {
+    console.error("postSlotsNow error:", e);
+  }
+
+  res.redirect(`/scrims/${scrimId}/settings`);
+});
+
+
 app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
@@ -3255,24 +3325,26 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   const slotsSpam = Number(req.body.slotsSpam || 0) ? 1 : 0;
 
   q.updateScrimSettings.run(
-    registrationChannelId,
-    listChannelId,
-    confirmChannelId,
-    teamRoleId,
-    banRoleId,
-    openAt,
-    closeAt,
-    confirmOpenAt,
-    confirmCloseAt,
-    scrimId,
-    guildId
-  ),
-  q.setBanChannel.run(banChannelId, scrimId, guildId);
-  q.setAutoPost.run(autoPostReg, autoPostList, autoPostConfirm, scrimId, guildId);
-  q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
+  registrationChannelId,
+  listChannelId,
+  confirmChannelId,
+  teamRoleId,
+  banRoleId,
+  openAt,
+  closeAt,
+  confirmOpenAt,
+  confirmCloseAt,
+  scrimId,
+  guildId
+);
 
-  const fresh = q.scrimById.get(scrimId);
+q.setBanChannel.run(banChannelId, scrimId, guildId);
+q.setAutoPost.run(autoPostReg, autoPostList, autoPostConfirm, scrimId, guildId);
+q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
+
+const fresh = q.scrimById.get(scrimId);
 autoPostAll(fresh).catch(() => {});
+
 
   res.redirect(`/scrims/${scrimId}`);
 });
