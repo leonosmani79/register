@@ -1297,7 +1297,46 @@ a{color:var(--accent);text-decoration:none}
 input,select,button{width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)}
 label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px;letter-spacing:.08em;text-transform:uppercase}
 button{cursor:pointer;border:none;background:linear-gradient(135deg,#fde68a,#f97316,#ea580c);color:#0b0b10;font-family:Orbitron;letter-spacing:.12em;text-transform:uppercase}
-.btn2{background:rgba(15,23,42,.85);border:1px solid var(--border);color:var(--text)}
+.btn2{
+  background:rgba(15,23,42,.85);
+  border:1px solid var(--border);
+  color:var(--text);
+
+  /* ✅ add these */
+  font-family: Orbitron, system-ui;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+a.btn2{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+button.btn2{
+  font-family: Orbitron, system-ui;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.scrimTitle{
+  font-family: Orbitron, system-ui;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.status{
+  font-family: Orbitron, system-ui;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148,163,184,.25);
+  background: rgba(2,6,23,.35);
+  display:inline-block;
+}
+.status.ok{ border-color: rgba(34,197,94,.45); }
+.status.bad{ border-color: rgba(239,68,68,.45); }
 table{width:100%;border-collapse:collapse}
 td,th{border-bottom:1px solid rgba(255,255,255,.06);padding:10px;font-size:13px;text-align:left}
 th{color:var(--muted)}
@@ -1662,9 +1701,13 @@ app.get("/scrims", requireLogin, (req, res) => {
     .map(
       (s) => `
     <tr>
-      <td><b>${esc(s.name)}</b><div class="muted">Scrim ID: ${s.id}</div></td>
-      <td>${s.registration_open ? "✅ OPEN" : "❌ CLOSED"}</td>
-      <td>${s.confirm_open ? "✅ OPEN" : "❌ CLOSED"}</td>
+<td>
+  <div class="scrimTitle">${esc(s.name)}</div>
+  <div class="muted">Scrim ID: ${s.id}</div>
+</td>
+<td><span class="status ${s.registration_open ? "ok" : "bad"}">${s.registration_open ? "OPEN" : "CLOSED"}</span></td>
+<td><span class="status ${s.confirm_open ? "ok" : "bad"}">${s.confirm_open ? "OPEN" : "CLOSED"}</span></td>
+
       <td style="width:460px">
         <div class="row">
           <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/scrims/${s.id}">Manage</a>
