@@ -319,13 +319,6 @@ const q = {
   WHERE id=? AND guild_id=?
 `),
 
-banUpsert: db.prepare(`
-  INSERT INTO bans (guild_id, user_id, reason, expires_at)
-  VALUES (?, ?, ?, ?)
-  ON CONFLICT(guild_id, user_id) DO UPDATE SET
-    reason=excluded.reason,
-    expires_at=excluded.expires_at
-`),
 
 banByUser: db.prepare(`SELECT * FROM bans WHERE guild_id=? AND user_id=?`),
 
@@ -364,13 +357,17 @@ setConfirmedByTeamId: db.prepare(`
   UPDATE teams SET confirmed = 1
   WHERE id = ? AND scrim_id = ?
 `),
+ banUpsert: db.prepare(`
+    INSERT INTO bans (guild_id, user_id, reason, expires_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(guild_id, user_id) DO UPDATE SET
+      reason = excluded.reason,
+      expires_at = excluded.expires_at
+  `),
 
-banUpsert: db.prepare(`
-  INSERT INTO bans (guild_id, user_id, reason)
-  VALUES (?, ?, ?)
-  ON CONFLICT(guild_id, user_id) DO UPDATE SET
-    reason=excluded.reason
-`),
+  banByUser: db.prepare(`SELECT * FROM bans WHERE guild_id=? AND user_id=?`),
+  bansByGuild: db.prepare(`SELECT * FROM bans WHERE guild_id=? ORDER BY id DESC`),
+  unban: db.prepare(`DELETE FROM bans WHERE guild_id=? AND user_id=?`),
 
 isBanned: db.prepare(`SELECT 1 FROM bans WHERE guild_id = ? AND user_id = ?`),
 bansByGuild: db.prepare(`SELECT * FROM bans WHERE guild_id = ? ORDER BY id DESC`),
@@ -2321,7 +2318,8 @@ app.post("/scrims/:id/team/:teamId/ban", requireLogin, async (req, res) => {
   }
 
   // save ban
-  q.upsertBan.run(scrim.guild_id, team.owner_user_id, reason, expiresAt);
+q.banUpsert.run(scrim.guild_id, team.owner_user_id, reason, expiresAt);
+
 
   // give ban role (optional)
   const guild = await discord.guilds.fetch(scrim.guild_id).catch(() => null);
