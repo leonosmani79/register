@@ -296,6 +296,49 @@ function addColumnIfMissing(table, column, defSql) {
 addColumnIfMissing("scrims", "slot_template", "TEXT");
 addColumnIfMissing("scrims", "slots_channel_id", "TEXT");
 addColumnIfMissing("scrims", "slots_spam", "INTEGER NOT NULL DEFAULT 0");
+// auto-post toggles + message ids
+addColumnIfMissing("scrims", "auto_post_reg", "INTEGER NOT NULL DEFAULT 1");
+addColumnIfMissing("scrims", "auto_post_list", "INTEGER NOT NULL DEFAULT 1");
+addColumnIfMissing("scrims", "auto_post_confirm", "INTEGER NOT NULL DEFAULT 1");
+
+addColumnIfMissing("scrims", "registration_message_id", "TEXT");
+
+// ban channel log
+addColumnIfMissing("scrims", "ban_channel_id", "TEXT");
+
+// results dynamic games
+db.exec(`
+CREATE TABLE IF NOT EXISTS scrim_games (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scrim_id INTEGER NOT NULL,
+  idx INTEGER NOT NULL,
+  name TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(scrim_id, idx),
+  FOREIGN KEY(scrim_id) REFERENCES scrims(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS results_points (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scrim_id INTEGER NOT NULL,
+  slot INTEGER NOT NULL,
+  game_idx INTEGER NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(scrim_id, slot, game_idx),
+  FOREIGN KEY(scrim_id) REFERENCES scrims(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS result_screenshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scrim_id INTEGER NOT NULL,
+  game_idx INTEGER NOT NULL,
+  filename TEXT NOT NULL,
+  uploaded_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(scrim_id) REFERENCES scrims(id) ON DELETE CASCADE
+);
+`);
+
 function colExists(table, col) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(r => r.name);
   return cols.includes(col);
