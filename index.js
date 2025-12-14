@@ -1793,33 +1793,42 @@ app.get("/scrims", requireLogin, (req, res) => {
 
   <div class="scrimCards">
     ${
-      scrims.map((s) => `
-        <div class="scrimCard">
-          <div class="scrimName">${esc(s.name)}</div>
-          <div class="scrimId">Scrim ID: ${s.id}</div>
+  scrims.map((s) => `
+  <div class="scrimCard">
+    <div class="scrimTop">
+      <div style="min-width:0">
+        <div class="scrimName">${esc(s.name)}</div>
+        <div class="scrimMeta">Scrim ID: ${s.id}</div>
+      </div>
+    </div>
 
-          <div class="chips">
-            <div class="chip ${s.registration_open ? "ok" : "bad"}">Reg: ${s.registration_open ? "OPEN" : "CLOSED"}</div>
-            <div class="chip ${s.confirm_open ? "ok" : "bad"}">Confirms: ${s.confirm_open ? "OPEN" : "CLOSED"}</div>
-          </div>
+    <div class="chips">
+      <div class="chip ${s.registration_open ? "ok" : "bad"}">
+        ${s.registration_open ? "🟢" : "🔴"} REG: ${s.registration_open ? "OPEN" : "CLOSED"}
+      </div>
+      <div class="chip ${s.confirm_open ? "ok" : "bad"}">
+        ${s.confirm_open ? "🟢" : "🔴"} CONFIRMS: ${s.confirm_open ? "OPEN" : "CLOSED"}
+      </div>
+    </div>
 
-          <div class="cardActions">
-            <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px"
-               href="/scrims/${s.id}">Manage</a>
+    <div class="cardActions">
+      <a class="btn2 primary" style="text-align:center;display:inline-flex;align-items:center;justify-content:center"
+         href="/scrims/${s.id}">Manage</a>
 
-            <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px"
-               href="/scrims/${s.id}/results">Results</a>
+      <a class="btn2" style="text-align:center;display:inline-flex;align-items:center;justify-content:center"
+         href="/scrims/${s.id}/results">Results</a>
 
-            <form method="POST" action="/scrims/${s.id}/toggleReg">
-              <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
-            </form>
+      <form method="POST" action="/scrims/${s.id}/toggleReg">
+        <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
+      </form>
 
-            <form method="POST" action="/scrims/${s.id}/toggleConfirm">
-              <button class="btn2" type="submit">${s.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
-            </form>
-          </div>
-        </div>
-      `).join("")
+      <form method="POST" action="/scrims/${s.id}/toggleConfirm">
+        <button class="btn2" type="submit">${s.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
+      </form>
+    </div>
+  </div>
+`).join("")
+
     }
   </div>
 `,
