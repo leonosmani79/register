@@ -1167,6 +1167,33 @@ button.btn2{
       border-radius:9px;
       color: #cbd5e1;
     }
+      .banBox{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+
+.banBox > *{ min-width: 0; }
+
+.banInput{
+  flex: 1 1 220px;
+}
+
+.banSelect{
+  flex: 0 0 110px;
+}
+
+.banDays{
+  flex: 0 0 90px;
+}
+
+@media (max-width: 780px){
+  .banInput{ flex: 1 1 100%; }
+  .banSelect{ flex: 1 1 48%; }
+  .banDays{ flex: 1 1 48%; }
+}
+
   </style>
 </head>
 <body>
@@ -1927,114 +1954,136 @@ app.post("/scrims/new", requireLogin, (req, res) => {
 });
 
 // ✅ MANAGE SCRIM PAGE (THIS FIXES /scrims/:id)
+// MANAGE SCRIM
 app.get("/scrims/:id", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
 
   const scrim = q.scrimById.get(scrimId);
-  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+  if (!scrim || String(scrim.guild_id) !== String(guildId)) {
+    return res.status(404).send("Scrim not found");
+  }
 
   const teams = q.teamsByScrim.all(scrimId);
   const totalSlots = scrim.max_slot - scrim.min_slot + 1;
 
-  const rows = teams.map((t) => `
-    <tr>
-      <td><b>#${t.slot}</b></td>
-      <td>
-        <b>${esc(t.team_name)}</b>
-        <div class="muted">[${esc(t.team_tag)}] • TeamID: ${t.id}</div>
-      </td>
-      <td><code>${esc(t.owner_user_id)}</code></td>
-      <td>${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</td>
-      <td style="width:420px">
-        <div class="row" style="gap:8px">
-          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept" style="margin:0">
-            <button class="btn2" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
-          </form>
+  const rows = teams
+    .map((t) => `
+      <tr>
+        <td><b>#${t.slot}</b></td>
+        <td>
+          <b>${esc(t.team_name)}</b>
+          <div class="muted">[${esc(t.team_tag)}] • TeamID: ${t.id}</div>
+        </td>
+        <td><code>${esc(t.owner_user_id)}</code></td>
+        <td>${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</td>
+        <td style="width:420px">
+          <div class="row" style="gap:8px; align-items:flex-start">
 
-          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete" style="margin:0"
-                onsubmit="return confirm('Delete slot #${t.slot} (${t.team_tag})?')">
-            <button class="btn2" type="submit">Delete</button>
-          </form>
+            <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept" style="margin:0">
+              <button class="btn2" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
+            </form>
 
-          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
-      onsubmit="return confirm('Ban this user?')">
+            <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete" style="margin:0"
+                  onsubmit="return confirm('Delete slot #${t.slot} (${t.team_tag})?')">
+              <button class="btn2" type="submit">Delete</button>
+            </form>
 
-  <input name="reason" placeholder="Reason (optional)" value="Banned by staff" style="width:180px"/>
+            <!-- Ban Form -->
+            <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
+                  onsubmit="return confirm('Ban this user?')">
 
-  <select name="mode" style="width:110px">
-    <option value="perm">Perm</option>
-    <option value="days" selected>Days</option>
-  </select>
+              <div class="banBox">
+                <input class="banInput" name="reason" placeholder="Reason (optional)" value="Banned by staff" />
 
-  <input name="days" type="number" min="1" max="365" value="7" style="width:90px" />
+                <select class="banSelect" name="mode">
+                  <option value="perm">Perm</option>
+                  <option value="days" selected>Days</option>
+                </select>
 
-  <button class="btn2" type="submit">Ban</button>
-</form>
+                <input class="banDays" name="days" type="number" min="1" max="365" value="7" />
 
-        </div>
-      </td>
-    </tr>
-  `).join("");
+                <button class="btn2" type="submit">Ban</button>
+              </div>
+            </form>
+
+          </div>
+        </td>
+      </tr>
+    `)
+    .join("");
 
   const bans = q.bansByGuild ? q.bansByGuild.all(guildId) : [];
-  const banRows = bans.map((b) => `
-    <tr>
-      <td><code>${esc(b.user_id)}</code></td>
-      <td class="muted">${esc(b.reason || "—")}</td>
-      <td class="muted">${esc(b.expires_at || "PERMA")}</td>
-      <td style="width:160px">
-        <form method="POST" action="/scrims/${scrimId}/unban" style="margin:0">
-          <input type="hidden" name="userId" value="${esc(b.user_id)}"/>
-          <button class="btn2" type="submit">Unban</button>
-        </form>
-      </td>
-    </tr>
-  `).join("");
+  const banRows = bans
+    .map((b) => `
+      <tr>
+        <td><code>${esc(b.user_id)}</code></td>
+        <td class="muted">${esc(b.reason || "—")}</td>
+        <td class="muted">${esc(b.expires_at || "PERMA")}</td>
+        <td style="width:160px">
+          <form method="POST" action="/scrims/${scrimId}/unban" style="margin:0">
+            <input type="hidden" name="userId" value="${esc(b.user_id)}"/>
+            <button class="btn2" type="submit">Unban</button>
+          </form>
+        </td>
+      </tr>
+    `)
+    .join("");
 
-  res.send(renderLayout({
-    title: `Manage • ${scrim.name}`,
-    user: req.session.user,
-    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
-    active: "scrims",
-    body: `
-      <h2 class="h">${esc(scrim.name)} — Manage Slots</h2>
-      <p class="muted">
-        Teams: <b>${teams.length}/${totalSlots}</b> •
-        Reg: <b>${scrim.registration_open ? "OPEN" : "CLOSED"}</b> •
-        Confirms: <b>${scrim.confirm_open ? "OPEN" : "CLOSED"}</b>
-      </p>
+  res.send(
+    renderLayout({
+      title: `Manage • ${scrim.name}`,
+      user: req.session.user,
+      selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+      active: "scrims",
+      body: `
+        <h2 class="h">${esc(scrim.name)} — Manage Slots</h2>
+        <p class="muted">
+          Teams: <b>${teams.length}/${totalSlots}</b> •
+          Reg: <b>${scrim.registration_open ? "OPEN" : "CLOSED"}</b> •
+          Confirms: <b>${scrim.confirm_open ? "OPEN" : "CLOSED"}</b>
+        </p>
 
-      <div class="row" style="margin:12px 0">
-        <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0"><button class="btn2" type="submit">Post Reg</button></form>
-        <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post List</button></form>
-        <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post Confirm</button></form>
+        <div class="row" style="margin:12px 0">
+          <form method="POST" action="/scrims/${scrimId}/postRegMessage" style="margin:0">
+            <button class="btn2" type="submit">Post Reg</button>
+          </form>
+          <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0">
+            <button class="btn2" type="submit">Post List</button>
+          </form>
+          <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0">
+            <button class="btn2" type="submit">Post Confirm</button>
+          </form>
 
-  <a class="btn2 primary" href="/scrims/${scrimId}">Manage</a>
-<a class="btn2" href="/scrims/${scrimId}/results">Results</a>
+          <a class="btn2" href="/scrims/${scrimId}/results">Results</a>
+          <a class="btn2" href="/scrims">Back</a>
+        </div>
 
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Slot</th><th>Team</th><th>Owner</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              ${rows || `<tr><td colspan="5">No teams registered yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
 
-      </div>
+        <hr style="margin:18px 0;opacity:.2"/>
 
-      <table>
-        <thead>
-          <tr><th>Slot</th><th>Team</th><th>Owner</th><th>Status</th><th>Actions</th></tr>
-        </thead>
-        <tbody>
-          ${rows || `<tr><td colspan="5">No teams registered yet.</td></tr>`}
-        </tbody>
-      </table>
-
-      <hr style="margin:18px 0;opacity:.2"/>
-
-      <h3 class="h" style="font-size:14px">Bans</h3>
-      <table>
-        <thead><tr><th>User</th><th>Reason</th><th>Expires</th><th>Action</th></tr></thead>
-        <tbody>${banRows || `<tr><td colspan="4">No bans.</td></tr>`}</tbody>
-      </table>
-    `
-  }));
+        <h3 class="h" style="font-size:14px">Bans</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>User</th><th>Reason</th><th>Expires</th><th>Action</th></tr></thead>
+            <tbody>${banRows || `<tr><td colspan="4">No bans.</td></tr>`}</tbody>
+          </table>
+        </div>
+      `,
+    })
+  );
 });
+
 
 
 app.get("/scrims/:id/messages", requireLogin, (req, res) => {
