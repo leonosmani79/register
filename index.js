@@ -532,14 +532,122 @@ const discord = new Client({
 });
 
 async function registerCommands() {
-  const commands = [
-    new SlashCommandBuilder().setName("scrims").setDescription("Get the panel link (admins only)"),
-  ].map((c) => c.toJSON());
+  const scrim = new SlashCommandBuilder()
+    .setName("scrim")
+    .setDescription("DarkSide Scrims commands")
+
+    .addSubcommand(sc =>
+      sc.setName("panel").setDescription("Get the web panel link (admins only)")
+    )
+
+    .addSubcommand(sc =>
+      sc.setName("list").setDescription("List scrims in this server")
+    )
+
+    .addSubcommand(sc =>
+      sc.setName("create").setDescription("Create a new scrim")
+        .addStringOption(o => o.setName("name").setDescription("Scrim name").setRequired(true))
+        .addIntegerOption(o => o.setName("min").setDescription("Min slot").setMinValue(2).setMaxValue(25).setRequired(true))
+        .addIntegerOption(o => o.setName("max").setDescription("Max slot").setMinValue(2).setMaxValue(25).setRequired(true))
+    )
+
+    .addSubcommandGroup(g =>
+  g.setName("reg").setDescription("Registration controls")
+    .addSubcommand(sc =>
+      sc.setName("open").setDescription("Open registration")
+        .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+    )
+    .addSubcommand(sc =>
+      sc.setName("close").setDescription("Close registration")
+        .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+    )
+)
+
+.addSubcommandGroup(g =>
+  g.setName("confirm").setDescription("Confirm controls")
+    .addSubcommand(sc =>
+      sc.setName("open").setDescription("Open confirms")
+        .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+    )
+    .addSubcommand(sc =>
+      sc.setName("close").setDescription("Close confirms")
+        .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+    )
+)
+
+    .addSubcommandGroup(g =>
+      g.setName("post").setDescription("Post/update Discord messages for a scrim")
+        .addSubcommand(sc => sc.setName("reg").setDescription("Create/Update the registration embed/button"))
+        .addSubcommand(sc => sc.setName("list").setDescription("Create/Update the teams list embed"))
+        .addSubcommand(sc => sc.setName("confirm").setDescription("Create/Update confirm embed/buttons"))
+        .addSubcommand(sc => sc.setName("slots").setDescription("Render & post slot GIFs now"))
+    )
+
+    .addSubcommand(sc =>
+      sc.setName("clear").setDescription("Clear ALL teams + results (keeps scrim)")
+        .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+    )
+
+    .addSubcommand(sc =>
+      sc.setName("delete").setDescription("Delete a scrim forever")
+        .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+    )
+
+    .addSubcommand(sc =>
+      sc.setName("ban").setDescription("Ban a user from registering (DB + optional ban role)")
+        .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+        .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+        .addStringOption(o => o.setName("duration").setDescription(`0|perm|1h|6h|1d|7d|30d`).setRequired(false))
+        .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(false))
+    )
+
+    .addSubcommand(sc =>
+      sc.setName("unban").setDescription("Unban a user (DB + remove ban role)")
+        .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+        .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    )
+
+    .addSubcommandGroup(g =>
+      g.setName("settings").setDescription("Edit scrim settings from Discord")
+        .addSubcommand(sc =>
+          sc.setName("set").setDescription("Set channels/roles/template/autopost for a scrim")
+            .addIntegerOption(o => o.setName("id").setDescription("Scrim ID").setRequired(true))
+
+            .addChannelOption(o => o.setName("reg_channel").setDescription("Registration channel").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false))
+            .addChannelOption(o => o.setName("list_channel").setDescription("List channel").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false))
+            .addChannelOption(o => o.setName("confirm_channel").setDescription("Confirm channel").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false))
+            .addChannelOption(o => o.setName("slots_channel").setDescription("Slots GIF channel").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false))
+            .addChannelOption(o => o.setName("banlog_channel").setDescription("Ban log channel").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false))
+
+            .addRoleOption(o => o.setName("team_role").setDescription("Team role (auto give)").setRequired(false))
+            .addRoleOption(o => o.setName("ban_role").setDescription("Ban role (optional)").setRequired(false))
+
+            .addStringOption(o => o.setName("slot_template").setDescription("Template folder name in /templates").setRequired(false))
+            .addBooleanOption(o => o.setName("slots_spam").setDescription("Spam mode (post every slot)").setRequired(false))
+
+            .addBooleanOption(o => o.setName("auto_post_reg").setDescription("Auto post registration message").setRequired(false))
+            .addBooleanOption(o => o.setName("auto_post_list").setDescription("Auto post list message").setRequired(false))
+            .addBooleanOption(o => o.setName("auto_post_confirm").setDescription("Auto post confirm message").setRequired(false))
+        )
+    );
+
+  const commands = [scrim].map(c => c.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
-  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-  console.log("✅ Slash commands registered.");
+
+  // OPTIONAL: for instant updates while testing
+  // set GUILD_ID in env to register guild commands instead of global
+  const GUILD_ID = process.env.GUILD_ID;
+
+  if (GUILD_ID) {
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    console.log("✅ Guild slash commands registered.");
+  } else {
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+    console.log("✅ Global slash commands registered.");
+  }
 }
+
 
 discord.once(Events.ClientReady, () => {
   console.log(`✅ Logged in as ${discord.user.tag}`);
@@ -870,17 +978,84 @@ await finalMsg.edit({ content: "", embeds: [embed], components });
 // ---------- DISCORD INTERACTIONS ----------
 discord.on(Events.InteractionCreate, async (interaction) => {
   try {
-    if (interaction.isChatInputCommand() && interaction.commandName === "scrims") {
-      const member = interaction.member;
-      const can =
-        member?.permissions?.has?.(PermissionFlagsBits.ManageGuild) ||
-        member?.permissions?.has?.(PermissionFlagsBits.Administrator);
+    // =========================
+    // SLASH COMMANDS
+    // =========================
+    if (interaction.isChatInputCommand()) {
+      // ---------- /scrims (panel link) ----------
+      if (interaction.commandName === "scrims") {
+        const member = interaction.member;
+        const can =
+          member?.permissions?.has?.(PermissionFlagsBits.ManageGuild) ||
+          member?.permissions?.has?.(PermissionFlagsBits.Administrator);
 
-      if (!can) return interaction.reply({ content: "❌ Need Manage Server.", ephemeral: true });
+        if (!can) return interaction.reply({ content: "❌ Need Manage Server.", ephemeral: true });
 
-      return interaction.reply({ content: `Panel: ${BASE}/panel`, ephemeral: true });
+        return interaction.reply({ content: `Panel: ${BASE}/panel`, ephemeral: true });
+      }
+
+      // ---------- /scrim reg/confirm with required scrim id ----------
+      if (interaction.commandName === "scrim") {
+        if (!interaction.inGuild()) {
+          return interaction.reply({ content: "❌ Use this in a server.", ephemeral: true });
+        }
+
+        const member = interaction.member;
+        const can =
+          member?.permissions?.has?.(PermissionFlagsBits.ManageGuild) ||
+          member?.permissions?.has?.(PermissionFlagsBits.Administrator);
+
+        if (!can) return interaction.reply({ content: "❌ Need Manage Server.", ephemeral: true });
+
+        const guildId = String(interaction.guildId);
+
+        const group = interaction.options.getSubcommandGroup(false); // "reg" | "confirm" | null
+        const sub = interaction.options.getSubcommand(true); // "open" | "close" | ...
+
+        // require scrim id for reg/confirm groups
+        if (group === "reg" || group === "confirm") {
+          const scrimId = interaction.options.getInteger("id", true);
+          const scrim = q.scrimById.get(scrimId);
+
+          if (!scrim || String(scrim.guild_id) !== guildId) {
+            return interaction.reply({ content: "❌ Scrim not found in this server.", ephemeral: true });
+          }
+
+          if (group === "reg") {
+            const next = sub === "open" ? 1 : 0;
+            q.setRegOpen.run(next, scrim.id, guildId);
+
+            const fresh = q.scrimById.get(scrim.id);
+            await autoPostAll(fresh).catch(() => {});
+
+            return interaction.reply({
+              content: `✅ Registration ${next ? "OPENED" : "CLOSED"} for **${fresh.name}** (ID: ${fresh.id})`,
+              ephemeral: true,
+            });
+          }
+
+          if (group === "confirm") {
+            const next = sub === "open" ? 1 : 0;
+            q.setConfirmOpen.run(next, scrim.id, guildId);
+
+            const fresh = q.scrimById.get(scrim.id);
+            await autoPostAll(fresh).catch(() => {});
+
+            return interaction.reply({
+              content: `✅ Confirms ${next ? "OPENED" : "CLOSED"} for **${fresh.name}** (ID: ${fresh.id})`,
+              ephemeral: true,
+            });
+          }
+        }
+
+        // if you add more /scrim subcommands later, handle them here
+        return interaction.reply({ content: "❌ Unknown /scrim command.", ephemeral: true });
+      }
     }
 
+    // =========================
+    // BUTTONS
+    // =========================
     if (interaction.isButton()) {
       const id = interaction.customId;
 
@@ -939,6 +1114,9 @@ discord.on(Events.InteractionCreate, async (interaction) => {
       }
     }
 
+    // =========================
+    // SELECT MENUS
+    // =========================
     if (interaction.isStringSelectMenu()) {
       const id = interaction.customId;
 
@@ -973,9 +1151,12 @@ discord.on(Events.InteractionCreate, async (interaction) => {
     }
   } catch (e) {
     console.error("Interaction error:", e);
-    if (interaction.isRepliable()) interaction.reply({ content: "❌ Error.", ephemeral: true }).catch(() => {});
+    if (interaction.isRepliable()) {
+      interaction.reply({ content: "❌ Error.", ephemeral: true }).catch(() => {});
+    }
   }
 });
+
 
 // ---------------------- EXPRESS ---------------------- //
 const app = express();
@@ -3366,36 +3547,3 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 app.listen(PORT, () => console.log(`🌐 Web running: ${BASE} (port ${PORT})`));
 registerCommands().catch((e) => console.error("Command register error:", e));
 discord.login(DISCORD_TOKEN);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
