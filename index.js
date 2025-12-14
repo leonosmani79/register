@@ -1281,281 +1281,210 @@ function renderLayout({ title, user, selectedGuild, active, body }) {
 <title>${esc(title)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#050509;--card:rgba(18,20,31,.95);--border:rgba(255,255,255,.08);--text:#f5f5f7;--muted:#9ca3af;--accent:#ffb300;}
+:root{
+  --bg:#050509;
+  --card:rgba(18,20,31,.95);
+  --border:rgba(255,255,255,.08);
+  --text:#f5f5f7;
+  --muted:#9ca3af;
+  --accent:#ffb300;
+}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#20263a 0,transparent 55%),radial-gradient(circle at bottom,#111827 0,#020617 65%);
-color:var(--text);font-family:Inter,system-ui;padding:22px}
+body{
+  margin:0;
+  min-height:100vh;
+  background:
+    radial-gradient(circle at top,#20263a 0,transparent 55%),
+    radial-gradient(circle at bottom,#111827 0,#020617 65%);
+  color:var(--text);
+  font-family:Inter,system-ui;
+  padding:22px;
+}
 a{color:var(--accent);text-decoration:none}
 .wrap{max-width:1100px;margin:0 auto}
 .top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}
 .brand{font-family:Orbitron;letter-spacing:.14em;text-transform:uppercase}
 .pill{background:rgba(15,23,42,.8);border:1px solid var(--border);border-radius:999px;padding:8px 10px;font-size:12px;color:var(--muted)}
-.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px;box-shadow:0 25px 40px rgba(0,0,0,.7)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px;box-shadow:0 25px 40px rgba(0,0,0,.7);overflow:hidden}
+
 .nav{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 14px}
 .nav a{padding:8px 12px;border-radius:999px;border:1px solid var(--border);background:rgba(15,23,42,.6);color:var(--text);font-size:13px}
 .nav a.active{border-color:rgba(255,179,0,.6);box-shadow:0 0 0 1px rgba(255,179,0,.22)}
-input,select,button{width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(15,23,42,.9);color:var(--text)}
+
+input,select,button{
+  width:100%;
+  padding:10px 11px;
+  border-radius:12px;
+  border:1px solid rgba(148,163,184,.35);
+  background:rgba(15,23,42,.9);
+  color:var(--text);
+}
 label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px;letter-spacing:.08em;text-transform:uppercase}
-button{cursor:pointer;border:none;background:linear-gradient(135deg,#fde68a,#f97316,#ea580c);color:#0b0b10;font-family:Orbitron;letter-spacing:.12em;text-transform:uppercase}
+button{
+  cursor:pointer;
+  border:none;
+  background:linear-gradient(135deg,#fde68a,#f97316,#ea580c);
+  color:#0b0b10;
+  font-family:Orbitron,system-ui;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+
 .btn2{
   background:rgba(15,23,42,.85);
   border:1px solid var(--border);
   color:var(--text);
-
-  /* ✅ add these */
-  font-family: Orbitron, system-ui;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-a.btn2{
+  font-family:Orbitron,system-ui;
+  letter-spacing:.12em;
+  text-transform:uppercase;
   display:inline-flex;
   align-items:center;
   justify-content:center;
   gap:8px;
+  text-decoration:none;
 }
 button.btn2{
-  font-family: Orbitron, system-ui;
-  letter-spacing: .12em;
-  text-transform: uppercase;
+  border:1px solid var(--border);
+  background:rgba(15,23,42,.85);
+  color:var(--text);
 }
-.scrimTitle{
-  font-family: Orbitron, system-ui;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+.btn2.primary{
+  border-color: rgba(255,179,0,.55);
+  box-shadow: 0 0 0 1px rgba(255,179,0,.18);
 }
 
+.scrimTitle{
+  font-family:Orbitron,system-ui;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
 .status{
-  font-family: Orbitron, system-ui;
-  letter-spacing: .10em;
-  text-transform: uppercase;
-  font-size: 12px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(148,163,184,.25);
-  background: rgba(2,6,23,.35);
+  font-family:Orbitron,system-ui;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+  font-size:12px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,.25);
+  background:rgba(2,6,23,.35);
   display:inline-block;
 }
-.status.ok{ border-color: rgba(34,197,94,.45); }
-.status.bad{ border-color: rgba(239,68,68,.45); }
+.status.ok{border-color:rgba(34,197,94,.45)}
+.status.bad{border-color:rgba(239,68,68,.45)}
+
 table{width:100%;border-collapse:collapse}
 td,th{border-bottom:1px solid rgba(255,255,255,.06);padding:10px;font-size:13px;text-align:left}
 th{color:var(--muted)}
+
 .row{display:flex;gap:10px;flex-wrap:wrap}
 .row>*{flex:1;min-width:160px}
 .muted{color:var(--muted)}
 .h{font-family:Orbitron;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
 .warn{margin-top:12px;padding:10px;border-radius:12px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.55);color:#fecaca;font-size:13px}
-/* ===== DASHBOARD ICON CARDS ===== */
-.grid4{
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:12px;
-}
-@media (max-width:900px){
-  .grid4{grid-template-columns:repeat(2,1fr)}
-}
-@media (max-width:520px){
-  .grid4{grid-template-columns:1fr}
-}
 
-.tile{
-  background:rgba(15,23,42,.65);
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:18px;
-  padding:14px;
-  display:flex;
-  gap:12px;
-  align-items:center;
-  transition:transform .12s ease,border-color .12s ease;
-}
-.tile:hover{
-  transform:translateY(-2px);
-  border-color:rgba(255,179,0,.45);
-}
-
-.ico{
-  width:44px;
-  height:44px;
-  border-radius:14px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:rgba(255,179,0,.12);
-  border:1px solid rgba(255,179,0,.25);
-  font-size:20px;
-}
-
-.t1{
-  font-family:Orbitron;
-  letter-spacing:.08em;
-  text-transform:uppercase;
-  margin:0;
-  font-size:14px;
-}
-.t2{
-  margin:2px 0 0;
-  color:var(--muted);
-  font-size:12px;
-  line-height:1.4;
-}
-
-.smallrow{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-}
-.smallrow>*{
-  flex:1;
-  min-width:200px;
-}
+/* ===== TABLE WRAP ===== */
 .table-wrap{width:100%; overflow:auto}
 
-/* Mobile cards */
 /* =========================
-   SCRIMS — MOBILE CARDS (IMPROVED)
+   SCRIMS — MOBILE CARDS
    ========================= */
+.scrimCards{display:none;}
 @media (max-width: 780px){
   table{display:none !important;}
-
-  .scrimCards{
-    display:grid;
-    gap:12px;
-  }
+  .scrimCards{display:grid;gap:12px;}
 
   .scrimCard{
-    background: rgba(15,23,42,.72);
-    border: 1px solid rgba(148,163,184,.18);
-    border-radius: 18px;
-    padding: 14px;
+    background:rgba(15,23,42,.72);
+    border:1px solid rgba(148,163,184,.18);
+    border-radius:18px;
+    padding:14px;
+    overflow:hidden;
   }
 
-  .scrimTop{
-    display:flex;
-    align-items:flex-start;
-    justify-content:space-between;
-    gap:10px;
-  }
-
+  .scrimTop{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
   .scrimName{
-    font-family: Orbitron, system-ui;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    font-size: 14px;
-    line-height: 1.2;
-    margin: 0;
+    font-family:Orbitron,system-ui;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    font-size:14px;
+    line-height:1.2;
+    margin:0;
   }
+  .scrimMeta{margin-top:6px;color:var(--muted);font-size:12px;word-break:break-word}
 
-  .scrimMeta{
-    margin-top:6px;
-    color: var(--muted);
-    font-size: 12px;
-    word-break: break-word;
-  }
-
-  .chips{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    margin-top:10px;
-  }
-
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   .chip{
-    font-family: Orbitron, system-ui;
-    letter-spacing: .10em;
-    text-transform: uppercase;
-    font-size: 11px;
-    padding: 6px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(148,163,184,.25);
-    background: rgba(2,6,23,.35);
+    font-family:Orbitron,system-ui;
+    letter-spacing:.10em;
+    text-transform:uppercase;
+    font-size:11px;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,.25);
+    background:rgba(2,6,23,.35);
     display:inline-flex;
     align-items:center;
     gap:6px;
   }
-  .chip.ok{ border-color: rgba(34,197,94,.45); }
-  .chip.bad{ border-color: rgba(239,68,68,.45); }
+  .chip.ok{border-color:rgba(34,197,94,.45)}
+  .chip.bad{border-color:rgba(239,68,68,.45)}
 
-  .cardActions{
+  /* ✅ Two rows (Manage+Results) then (Open/Close toggles) */
+  .cardActionsRow{
     display:grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns:1fr 1fr;
     gap:10px;
     margin-top:12px;
+    width:100%;
   }
+  .cardActionsRow form{margin:0;}
+  .cardActionsRow *{min-width:0;}
 
-  /* Make forms behave like buttons */
-  .cardActions form{ margin:0; }
-  .cardActions a.btn2,
-  .cardActions button.btn2{
+  .cardActionsRow a.btn2,
+  .cardActionsRow button.btn2{
     width:100% !important;
-    min-height: 40px;
-    border-radius: 14px;
+    max-width:100%;
+    display:flex !important;
+    align-items:center;
+    justify-content:center;
+    box-sizing:border-box;
+    white-space:nowrap;
+    padding:10px 12px;
+    border-radius:14px;
+    min-height:40px;
   }
 
-  /* Primary action pop */
-  .cardActions a.btn2.primary,
-  .cardActions button.btn2.primary{
-    border-color: rgba(255,179,0,.55);
-    box-shadow: 0 0 0 1px rgba(255,179,0,.18);
+  @media (max-width: 420px){
+    .cardActionsRow{grid-template-columns:1fr;}
   }
 }
-
-/* show cards on mobile */
 @media (min-width: 781px){
   .scrimCards{display:none;}
 }
 
-
-/* --- Mobile table fix --- */
-.tableWrap{
-  width:100%;
-  overflow-x:auto;
-  -webkit-overflow-scrolling:touch;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,.06);
-}
-
-.tableWrap table{ min-width: 700px; }
-/* --- Servers mobile cards --- */
-.cards{ display:none; gap:12px; }
+/* =========================
+   SERVERS — MOBILE CARDS
+   (separate classes so it doesn't clash with scrims)
+   ========================= */
+.cards{display:none;gap:12px;}
 .cardItem{
   border:1px solid rgba(255,255,255,.08);
-  background: rgba(15,23,42,.65);
+  background:rgba(15,23,42,.65);
   border-radius:16px;
   padding:14px;
 }
-.cardTop{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
-.cardName{ font-weight:700; }
-.cardId{ color:var(--muted); font-size:12px; margin-top:4px; word-break:break-all; }
-.cardActions{ margin-top:12px; display:flex; gap:10px; }
-.cardActions form{ margin:0; flex:1; }
+.cardTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
+.cardName{font-weight:700;}
+.cardId{color:var(--muted);font-size:12px;margin-top:4px;word-break:break-all;}
 
-/* Show cards on small screens, hide table */
+.serverActions{margin-top:12px;display:flex;gap:10px;}
+.serverActions form{margin:0;flex:1;}
+
 @media (max-width: 760px){
-  table{ display:none; }
-  .cards{ display:flex; flex-direction:column; }
+  table{display:none;}
+  .cards{display:flex;flex-direction:column;}
+  .serverActions{display:grid;grid-template-columns:1fr;gap:10px;}
 }
-/* ===== FIX MOBILE OVERFLOW ON /scrims ===== */
-.scrimCard { overflow: hidden; } /* prevents any child from pushing outside */
-.cardActions { width: 100%; }
-.cardActions * { min-width: 0; } /* important for grid shrink */
-
-.cardActions a.btn2,
-.cardActions button.btn2{
-  width: 100% !important;
-  max-width: 100%;
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  white-space: nowrap;
-  padding: 10px 12px;  /* controlled padding */
-}
-
-/* if screen is very small, use 1 column so nothing can overflow */
-@media (max-width: 420px){
-  .cardActions{ grid-template-columns: 1fr !important; }
-}
-
 </style></head>
 <body><div class="wrap">
 <div class="top">
@@ -1773,20 +1702,32 @@ app.get("/scrims", requireLogin, (req, res) => {
     .map(
       (s) => `
     <tr>
-<td>
-  <div class="scrimTitle">${esc(s.name)}</div>
-  <div class="muted">Scrim ID: ${s.id}</div>
-</td>
-<td><span class="status ${s.registration_open ? "ok" : "bad"}">${s.registration_open ? "OPEN" : "CLOSED"}</span></td>
-<td><span class="status ${s.confirm_open ? "ok" : "bad"}">${s.confirm_open ? "OPEN" : "CLOSED"}</span></td>
+      <td>
+        <div class="scrimTitle">${esc(s.name)}</div>
+        <div class="muted">Scrim ID: ${s.id}</div>
+      </td>
+
+      <td>
+        <span class="status ${s.registration_open ? "ok" : "bad"}">
+          ${s.registration_open ? "OPEN" : "CLOSED"}
+        </span>
+      </td>
+
+      <td>
+        <span class="status ${s.confirm_open ? "ok" : "bad"}">
+          ${s.confirm_open ? "OPEN" : "CLOSED"}
+        </span>
+      </td>
 
       <td style="width:460px">
         <div class="row">
-          <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/scrims/${s.id}">Manage</a>
-          <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px;" href="/scrims/${s.id}/results">Results</a>
+          <a class="btn2 primary" href="/scrims/${s.id}">Manage</a>
+          <a class="btn2" href="/scrims/${s.id}/results">Results</a>
+
           <form method="POST" action="/scrims/${s.id}/toggleReg" style="margin:0">
             <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
           </form>
+
           <form method="POST" action="/scrims/${s.id}/toggleConfirm" style="margin:0">
             <button class="btn2" type="submit">${s.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
           </form>
@@ -1803,59 +1744,64 @@ app.get("/scrims", requireLogin, (req, res) => {
       selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
       active: "scrims",
       body: `
-  <h2 class="h">Scrims</h2>
+        <h2 class="h">Scrims</h2>
 
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Scrim</th><th>Reg</th><th>Confirms</th><th>Actions</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="4">No scrims. Create one.</td></tr>`}</tbody>
-    </table>
-  </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Scrim</th><th>Reg</th><th>Confirms</th><th>Actions</th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="4">No scrims. Create one.</td></tr>`}</tbody>
+          </table>
+        </div>
 
-  <div class="scrimCards">
-    ${
-  scrims.map((s) => `
-  <div class="scrimCard">
-    <div class="scrimTop">
-      <div style="min-width:0">
-        <div class="scrimName">${esc(s.name)}</div>
-        <div class="scrimMeta">Scrim ID: ${s.id}</div>
-      </div>
-    </div>
+        <div class="scrimCards">
+          ${
+            scrims
+              .map(
+                (s) => `
+                  <div class="scrimCard">
+                    <div class="scrimTop">
+                      <div style="min-width:0">
+                        <div class="scrimName">${esc(s.name)}</div>
+                        <div class="scrimMeta">Scrim ID: ${s.id}</div>
+                      </div>
+                    </div>
 
-    <div class="chips">
-      <div class="chip ${s.registration_open ? "ok" : "bad"}">
-        ${s.registration_open ? "🟢" : "🔴"} REG: ${s.registration_open ? "OPEN" : "CLOSED"}
-      </div>
-      <div class="chip ${s.confirm_open ? "ok" : "bad"}">
-        ${s.confirm_open ? "🟢" : "🔴"} CONFIRMS: ${s.confirm_open ? "OPEN" : "CLOSED"}
-      </div>
-    </div>
+                    <div class="chips">
+                      <div class="chip ${s.registration_open ? "ok" : "bad"}">
+                        ${s.registration_open ? "🟢" : "🔴"} REG: ${s.registration_open ? "OPEN" : "CLOSED"}
+                      </div>
+                      <div class="chip ${s.confirm_open ? "ok" : "bad"}">
+                        ${s.confirm_open ? "🟢" : "🔴"} CONFIRMS: ${s.confirm_open ? "OPEN" : "CLOSED"}
+                      </div>
+                    </div>
 
-    <div class="cardActions">
-      <a class="btn2 primary" style="text-align:center;display:inline-flex;align-items:center;justify-content:center"
-         href="/scrims/${s.id}">Manage</a>
+                    <!-- Row 1: Manage + Results -->
+                    <div class="cardActionsRow">
+                      <a class="btn2 primary" href="/scrims/${s.id}">Manage</a>
+                      <a class="btn2" href="/scrims/${s.id}/results">Results</a>
+                    </div>
 
-      <a class="btn2" style="text-align:center;display:inline-flex;align-items:center;justify-content:center"
-         href="/scrims/${s.id}/results">Results</a>
+                    <!-- Row 2: Toggles -->
+                    <div class="cardActionsRow">
+                      <form method="POST" action="/scrims/${s.id}/toggleReg">
+                        <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
+                      </form>
 
-      <form method="POST" action="/scrims/${s.id}/toggleReg">
-        <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
-      </form>
-
-      <form method="POST" action="/scrims/${s.id}/toggleConfirm">
-        <button class="btn2" type="submit">${s.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
-      </form>
-    </div>
-  </div>
-`).join("")
-
-    }
-  </div>
-`,
+                      <form method="POST" action="/scrims/${s.id}/toggleConfirm">
+                        <button class="btn2" type="submit">${s.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
+                      </form>
+                    </div>
+                  </div>
+                `
+              )
+              .join("")
+          }
+        </div>
+      `,
     })
   );
 });
+
 
 // CREATE SCRIM
 app.get("/scrims/new", requireLogin, (req, res) => {
