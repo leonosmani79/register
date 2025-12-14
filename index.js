@@ -1993,8 +1993,9 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
         <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post List</button></form>
         <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post Confirm</button></form>
 
-        <a class="btn2 primary" href="/scrims/${s.id}">Manage</a>
-        <a class="btn2" href="/scrims/${s.id}/results">Results</a>
+  <a class="btn2 primary" href="/scrims/${scrimId}">Manage</a>
+<a class="btn2" href="/scrims/${scrimId}/results">Results</a>
+
 
       </div>
 
