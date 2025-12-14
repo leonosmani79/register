@@ -1497,6 +1497,14 @@ th{color:var(--muted)}
   @media (max-width:420px){ .teamActions{grid-template-columns:1fr} }
   .teamActions .btn2{width:100%}
 }
+/* ===== show/hide helpers ===== */
+.hideOnMobile{ display: table; width:100%; }
+.showOnMobile{ display: none; }
+
+@media (max-width: 760px){
+  .hideOnMobile{ display: none !important; }
+  .showOnMobile{ display: flex !important; flex-direction: column; gap:12px; }
+}
 
 </style></head>
 <body><div class="wrap">
@@ -1682,7 +1690,7 @@ app.get("/servers", requireLogin, async (req, res) => {
     <tbody>${rows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
   </table>
 
-  <div class="cards">
+  <div class="showOnMobile">
     ${cards || `<div class="warn">No servers to show.</div>`}
   </div>
 `
