@@ -1071,25 +1071,42 @@ function renderLanding({ title = "DarkSideORG — Login", user = null, error = "
     .btn:hover{ transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 18px 36px rgba(0,0,0,.85), 0 0 32px rgba(249,115,22,.75); }
     .btn:active{ transform: scale(.98); filter: brightness(.98); }
 
-    .btn2{
-      width:100%;
-      padding:12px 14px;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.35);
-      background: rgba(15,23,42,.82);
-      color:var(--text);
-      cursor:pointer;
-      font-family:Orbitron,system-ui;
-      letter-spacing:.15em;
-      text-transform:uppercase;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:10px;
-      text-decoration:none;
-      transition: transform .12s ease, border-color .12s ease;
-      margin-top:10px;
-    }
+/* ===== BUTTON SYSTEM (same look for <a> and <button>) ===== */
+.btn2{
+  background:rgba(15,23,42,.85);
+  border:1px solid var(--border);
+  color:var(--text);
+
+  font-family: Orbitron, system-ui;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+
+  /* ✅ IMPORTANT: padding + radius for ALL */
+  padding: 10px 11px;
+  border-radius: 12px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+button.btn2{
+  /* keep button text same + remove gradient */
+  background:rgba(15,23,42,.85);
+  border:1px solid var(--border);
+  color:var(--text);
+}
+
+.btn2.primary{
+  border-color: rgba(255,179,0,.55);
+  box-shadow: 0 0 0 1px rgba(255,179,0,.18);
+}
+
     .btn2:hover{ transform: translateY(-1px); border-color: rgba(255,179,0,.55); }
     .btn2:active{ transform: scale(.99); }
 
