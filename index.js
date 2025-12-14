@@ -2038,7 +2038,8 @@ app.post("/scrims/:id/toggleReg", requireLogin, async (req, res) => {
   const fresh = q.scrimById.get(scrimId);
   await updateTeamsListEmbed(fresh).catch(() => {});
   await updateConfirmEmbed(fresh).catch(() => {});
-  res.redirect(`/scrims/${scrimId}`);
+  res.redirect("/scrims");
+
 });
 
 app.post("/scrims/:id/toggleConfirm", requireLogin, async (req, res) => {
@@ -2054,7 +2055,8 @@ app.post("/scrims/:id/toggleConfirm", requireLogin, async (req, res) => {
   const fresh = q.scrimById.get(scrimId);
   await updateTeamsListEmbed(fresh).catch(() => {});
   await updateConfirmEmbed(fresh).catch(() => {});
-  res.redirect(`/scrims/${scrimId}`);
+  res.redirect("/scrims");
+
 });
 
 app.post("/scrims/:id/postRegMessage", requireLogin, async (req, res) => {
