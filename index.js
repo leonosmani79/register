@@ -444,80 +444,9 @@ try {
 }
 
 const q = {
-  scrimById: db.prepare("SELECT * FROM scrims WHERE id = ?"),
-  scrimsByGuild: db.prepare("SELECT * FROM scrims WHERE guild_id = ? ORDER BY id DESC"),
-
-  updateSlotsSettings: db.prepare(`
-    UPDATE scrims SET
-      slot_template = ?,
-      slots_channel_id = ?,
-      slots_spam = ?
-    WHERE id = ? AND guild_id = ?
-  `),
-  q.setGameScChannel = db.prepare(`
-  UPDATE scrims SET gamesc_channel_id=? WHERE id=? AND guild_id=?
-  `),
-q.saveResult = db.prepare(`
-  INSERT INTO scrim_results (scrim_id, game, team_tag, place, kills, points)
-  VALUES (?, ?, ?, ?, ?, ?)
-  ON CONFLICT(scrim_id, game, team_tag)
-  DO UPDATE SET place=excluded.place, kills=excluded.kills, points=excluded.points
-`),
- q.teamsByScrim = db.prepare(`SELECT * FROM scrim_teams WHERE scrim_id=? ORDER BY slot ASC`);
- q.resultsByGame = db.prepare(`
-  SELECT * FROM scrim_results WHERE scrim_id=? AND game=?
-`),
-  updateScrimSettings: db.prepare(`
-  UPDATE scrims SET
-    registration_channel_id=?,
-    list_channel_id=?,
-    confirm_channel_id=?,
-    team_role_id=?,
-    ban_role_id=?,
-    open_at=?,
-    close_at=?,
-    confirm_open_at=?,
-    confirm_close_at=?
-  WHERE id=? AND guild_id=?
-`),
-  // auto post + reg message
-  setRegMessage: db.prepare("UPDATE scrims SET registration_channel_id = ?, registration_message_id = ? WHERE id = ?"),
-  setAutoPost: db.prepare(`
-    UPDATE scrims SET auto_post_reg=?, auto_post_list=?, auto_post_confirm=? WHERE id=? AND guild_id=?
-  `),
-
-  // ban channel
-  setBanChannel: db.prepare(`UPDATE scrims SET ban_channel_id=? WHERE id=? AND guild_id=?`),
-
-  // dynamic games
-  gamesByScrim: db.prepare(`SELECT * FROM scrim_games WHERE scrim_id=? ORDER BY idx ASC`),
-  ensureGame1: db.prepare(`
-    INSERT INTO scrim_games (scrim_id, idx, name)
-    VALUES (?, 1, 'Game 1')
-    ON CONFLICT(scrim_id, idx) DO NOTHING
-  `),
-  addGame: db.prepare(`
-    INSERT INTO scrim_games (scrim_id, idx, name)
-    VALUES (?, ?, ?)
-  `),
-
-  pointsByScrim: db.prepare(`
-    SELECT * FROM results_points WHERE scrim_id=? ORDER BY slot ASC, game_idx ASC
-  `),
-  upsertPoint: db.prepare(`
-    INSERT INTO results_points (scrim_id, slot, game_idx, points)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(scrim_id, slot, game_idx) DO UPDATE SET points=excluded.points
-  `),
-
-  screenshotsByScrim: db.prepare(`
-    SELECT * FROM result_screenshots WHERE scrim_id=? AND game_idx=? ORDER BY id DESC
-  `),
-  addScreenshot: db.prepare(`
-    INSERT INTO result_screenshots (scrim_id, game_idx, filename, uploaded_by)
-    VALUES (?, ?, ?, ?)
-  `),
-
+  // scrims
+  scrimById: db.prepare(`SELECT * FROM scrims WHERE id = ?`),
+  scrimsByGuild: db.prepare(`SELECT * FROM scrims WHERE guild_id = ? ORDER BY id DESC`),
 
   createScrim: db.prepare(`
     INSERT INTO scrims (
@@ -542,19 +471,105 @@ q.saveResult = db.prepare(`
       confirm_close_at = ?
     WHERE id = ? AND guild_id = ?
   `),
-  teamsByScrimFull: db.prepare(`
-  SELECT t.*, s.guild_id
-  FROM teams t
-  JOIN scrims s ON s.id = t.scrim_id
-  WHERE t.scrim_id = ?
-  ORDER BY t.slot ASC
-`),
 
-setConfirmedByTeamId: db.prepare(`
-  UPDATE teams SET confirmed = 1
-  WHERE id = ? AND scrim_id = ?
-`),
- banUpsert: db.prepare(`
+  updateScrimSettings: db.prepare(`
+    UPDATE scrims SET
+      registration_channel_id=?,
+      list_channel_id=?,
+      confirm_channel_id=?,
+      team_role_id=?,
+      ban_role_id=?,
+      open_at=?,
+      close_at=?,
+      confirm_open_at=?,
+      confirm_close_at=?
+    WHERE id=? AND guild_id=?
+  `),
+
+  // reg/list/confirm messages
+  setRegMessage: db.prepare(`
+    UPDATE scrims SET registration_channel_id = ?, registration_message_id = ? WHERE id = ?
+  `),
+  setListMessage: db.prepare(`
+    UPDATE scrims SET list_channel_id = ?, list_message_id = ? WHERE id = ?
+  `),
+  setConfirmMessage: db.prepare(`
+    UPDATE scrims SET confirm_channel_id = ?, confirm_message_id = ? WHERE id = ?
+  `),
+
+  // toggles
+  setRegOpen: db.prepare(`UPDATE scrims SET registration_open = ? WHERE id = ? AND guild_id = ?`),
+  setConfirmOpen: db.prepare(`UPDATE scrims SET confirm_open = ? WHERE id = ? AND guild_id = ?`),
+
+  // auto post flags
+  setAutoPost: db.prepare(`
+    UPDATE scrims SET auto_post_reg=?, auto_post_list=?, auto_post_confirm=? WHERE id=? AND guild_id=?
+  `),
+
+  // ban channel
+  setBanChannel: db.prepare(`
+    UPDATE scrims SET ban_channel_id=? WHERE id=? AND guild_id=?
+  `),
+
+  // slots settings
+  updateSlotsSettings: db.prepare(`
+    UPDATE scrims SET
+      slot_template = ?,
+      slots_channel_id = ?,
+      slots_spam = ?
+    WHERE id = ? AND guild_id = ?
+  `),
+
+  // ✅ GameSC screenshots channel
+  setGameScChannel: db.prepare(`
+    UPDATE scrims SET gamesc_channel_id=? WHERE id=? AND guild_id=?
+  `),
+
+  // teams
+  teamsByScrim: db.prepare(`
+    SELECT * FROM teams WHERE scrim_id = ? ORDER BY slot ASC
+  `),
+
+  teamsByScrimFull: db.prepare(`
+    SELECT t.*, s.guild_id
+    FROM teams t
+    JOIN scrims s ON s.id = t.scrim_id
+    WHERE t.scrim_id = ?
+    ORDER BY t.slot ASC
+  `),
+
+  teamByUser: db.prepare(`
+    SELECT * FROM teams WHERE scrim_id = ? AND owner_user_id = ?
+  `),
+
+  teamBySlot: db.prepare(`
+    SELECT * FROM teams WHERE scrim_id = ? AND slot = ?
+  `),
+
+  insertTeam: db.prepare(`
+    INSERT INTO teams (scrim_id, slot, team_name, team_tag, logo_filename, owner_user_id, confirmed)
+    VALUES (?, ?, ?, ?, ?, ?, 0)
+  `),
+
+  removeTeamBySlot: db.prepare(`
+    DELETE FROM teams WHERE scrim_id = ? AND slot = ?
+  `),
+
+  removeTeamByUser: db.prepare(`
+    DELETE FROM teams WHERE scrim_id = ? AND owner_user_id = ?
+  `),
+
+  setConfirmedByUser: db.prepare(`
+    UPDATE teams SET confirmed = 1 WHERE scrim_id = ? AND owner_user_id = ?
+  `),
+
+  setConfirmedByTeamId: db.prepare(`
+    UPDATE teams SET confirmed = 1
+    WHERE id = ? AND scrim_id = ?
+  `),
+
+  // bans
+  banUpsert: db.prepare(`
     INSERT INTO bans (guild_id, user_id, reason, expires_at)
     VALUES (?, ?, ?, ?)
     ON CONFLICT(guild_id, user_id) DO UPDATE SET
@@ -565,36 +580,61 @@ setConfirmedByTeamId: db.prepare(`
   banByUser: db.prepare(`SELECT * FROM bans WHERE guild_id=? AND user_id=?`),
   bansByGuild: db.prepare(`SELECT * FROM bans WHERE guild_id=? ORDER BY id DESC`),
   unban: db.prepare(`DELETE FROM bans WHERE guild_id=? AND user_id=?`),
+  isBanned: db.prepare(`SELECT 1 FROM bans WHERE guild_id = ? AND user_id = ?`),
 
-isBanned: db.prepare(`SELECT 1 FROM bans WHERE guild_id = ? AND user_id = ?`),
-
-  setRegOpen: db.prepare("UPDATE scrims SET registration_open = ? WHERE id = ? AND guild_id = ?"),
-  setConfirmOpen: db.prepare("UPDATE scrims SET confirm_open = ? WHERE id = ? AND guild_id = ?"),
-
-  setListMessage: db.prepare("UPDATE scrims SET list_channel_id = ?, list_message_id = ? WHERE id = ?"),
-  setConfirmMessage: db.prepare("UPDATE scrims SET confirm_channel_id = ?, confirm_message_id = ? WHERE id = ?"),
-
-  teamsByScrim: db.prepare("SELECT * FROM teams WHERE scrim_id = ? ORDER BY slot ASC"),
-  teamByUser: db.prepare("SELECT * FROM teams WHERE scrim_id = ? AND owner_user_id = ?"),
-  teamBySlot: db.prepare("SELECT * FROM teams WHERE scrim_id = ? AND slot = ?"),
-
-  insertTeam: db.prepare(`
-    INSERT INTO teams (scrim_id, slot, team_name, team_tag, logo_filename, owner_user_id, confirmed)
-    VALUES (?, ?, ?, ?, ?, ?, 0)
-  `),
-
-  removeTeamBySlot: db.prepare("DELETE FROM teams WHERE scrim_id = ? AND slot = ?"),
-  removeTeamByUser: db.prepare("DELETE FROM teams WHERE scrim_id = ? AND owner_user_id = ?"),
-
-  setConfirmedByUser: db.prepare("UPDATE teams SET confirmed = 1 WHERE scrim_id = ? AND owner_user_id = ?"),
-
+  // results legacy (your old table)
   upsertResults: db.prepare(`
     INSERT INTO results (scrim_id, slot, game1, game2, game3, game4)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(scrim_id, slot) DO UPDATE SET
       game1=excluded.game1, game2=excluded.game2, game3=excluded.game3, game4=excluded.game4
   `),
-  resultsByScrim: db.prepare("SELECT * FROM results WHERE scrim_id = ? ORDER BY slot ASC"),
+  resultsByScrim: db.prepare(`SELECT * FROM results WHERE scrim_id = ? ORDER BY slot ASC`),
+
+  // ✅ OCR results table (new)
+  saveResult: db.prepare(`
+    INSERT INTO scrim_results (scrim_id, game, team_tag, place, kills, points)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(scrim_id, game, team_tag)
+    DO UPDATE SET place=excluded.place, kills=excluded.kills, points=excluded.points
+  `),
+
+  resultsByGame: db.prepare(`
+    SELECT * FROM scrim_results WHERE scrim_id=? AND game=?
+  `),
+
+  // dynamic games + screenshots (your existing)
+  gamesByScrim: db.prepare(`SELECT * FROM scrim_games WHERE scrim_id=? ORDER BY idx ASC`),
+
+  ensureGame1: db.prepare(`
+    INSERT INTO scrim_games (scrim_id, idx, name)
+    VALUES (?, 1, 'Game 1')
+    ON CONFLICT(scrim_id, idx) DO NOTHING
+  `),
+
+  addGame: db.prepare(`
+    INSERT INTO scrim_games (scrim_id, idx, name)
+    VALUES (?, ?, ?)
+  `),
+
+  pointsByScrim: db.prepare(`
+    SELECT * FROM results_points WHERE scrim_id=? ORDER BY slot ASC, game_idx ASC
+  `),
+
+  upsertPoint: db.prepare(`
+    INSERT INTO results_points (scrim_id, slot, game_idx, points)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(scrim_id, slot, game_idx) DO UPDATE SET points=excluded.points
+  `),
+
+  screenshotsByScrim: db.prepare(`
+    SELECT * FROM result_screenshots WHERE scrim_id=? AND game_idx=? ORDER BY id DESC
+  `),
+
+  addScreenshot: db.prepare(`
+    INSERT INTO result_screenshots (scrim_id, game_idx, filename, uploaded_by)
+    VALUES (?, ?, ?, ?)
+  `),
 };
 
 function getNextFreeSlot(scrimId, minSlot, maxSlot) {
