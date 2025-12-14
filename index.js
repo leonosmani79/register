@@ -1534,6 +1534,27 @@ th{color:var(--muted)}
   table{ display:none; }
   .cards{ display:flex; flex-direction:column; }
 }
+/* ===== FIX MOBILE OVERFLOW ON /scrims ===== */
+.scrimCard { overflow: hidden; } /* prevents any child from pushing outside */
+.cardActions { width: 100%; }
+.cardActions * { min-width: 0; } /* important for grid shrink */
+
+.cardActions a.btn2,
+.cardActions button.btn2{
+  width: 100% !important;
+  max-width: 100%;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  white-space: nowrap;
+  padding: 10px 12px;  /* controlled padding */
+}
+
+/* if screen is very small, use 1 column so nothing can overflow */
+@media (max-width: 420px){
+  .cardActions{ grid-template-columns: 1fr !important; }
+}
 
 </style></head>
 <body><div class="wrap">
@@ -2008,8 +2029,9 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
         <form method="POST" action="/scrims/${scrimId}/postList" style="margin:0"><button class="btn2" type="submit">Post List</button></form>
         <form method="POST" action="/scrims/${scrimId}/postConfirmMessage" style="margin:0"><button class="btn2" type="submit">Post Confirm</button></form>
 
-        <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}/settings">Settings</a>
-        <a class="btn2" style="text-align:center;display:inline-block;padding:10px 11px;border-radius:12px" href="/scrims/${scrimId}/results">Results</a>
+        <a class="btn2 primary" href="/scrims/${s.id}">Manage</a>
+        <a class="btn2" href="/scrims/${s.id}/results">Results</a>
+
       </div>
 
       <table>
