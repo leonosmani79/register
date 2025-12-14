@@ -1381,6 +1381,24 @@ th{color:var(--muted)}
 .muted{color:var(--muted)}
 .h{font-family:Orbitron;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
 .warn{margin-top:12px;padding:10px;border-radius:12px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.55);color:#fecaca;font-size:13px}
+/* ===== DESKTOP SCRIMS ACTION BUTTONS (FIX) ===== */
+@media (min-width: 781px){
+  .row .btn2{
+    padding: 10px 14px;
+    border-radius: 12px;
+    min-height: 40px;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .row form{
+    margin: 0;
+  }
+
+  .row{
+    align-items: center;
+  }
+}
 
 /* ===== TABLE WRAP ===== */
 .table-wrap{width:100%; overflow:auto}
