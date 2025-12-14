@@ -8,6 +8,11 @@ const path = require("path");
 const fs = require("fs");
 const ffmpeg = require("fluent-ffmpeg");
 const Database = require("better-sqlite3");
+const vision = require("@google-cloud/vision");
+const visionClient = new vision.ImageAnnotatorClient();
+const matchSessions = new Map();
+// key: channelId
+// value: { scrimId, game, images: [] }
 
 const {
   Client,
@@ -106,6 +111,45 @@ function listTemplates() {
     .readdirSync(templatesDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
+}
+async function ocrImageFromUrl(url) {
+  const [result] = await visionClient.textDetection(url);
+  return result.fullTextAnnotation?.text || "";
+}
+
+function normalizeForLines(t) {
+  // keep newlines, normalize each line
+  return String(t || "")
+    .toUpperCase()
+    .replace(/[^\S\r\n]+/g, " ")       // compress spaces but keep \n
+    .replace(/[^A-Z0-9\r\n ]/g, " ");  // strip symbols but keep \n
+}
+
+function parseResults(ocrText, teamTags) {
+  const lines = normalizeForLines(ocrText)
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean);
+
+  const results = [];
+
+  for (const tag of teamTags) {
+    const idx = lines.findIndex(l => l.includes(tag));
+    if (idx === -1) continue;
+
+    const nearby = lines.slice(Math.max(0, idx - 2), idx + 3).join(" ");
+    const nums = nearby.match(/\b\d+\b/g)?.map(Number) || [];
+
+    // heuristic: place 1-25, kills 0-40 (PUBG can be higher sometimes)
+    const place = nums.find(n => n >= 1 && n <= 25);
+    const kills = nums.find(n => n >= 0 && n <= 40 && n !== place);
+
+    if (place != null && kills != null) {
+      results.push({ tag, place, kills });
+    }
+  }
+
+  return results;
 }
 
 function loadTemplate(templateKey) {
@@ -297,6 +341,16 @@ CREATE TABLE IF NOT EXISTS bans (
 );
 
 `);
+// ---- MIGRATIONS (safe to run every startup) ----
+function addColumnIfMissing(table, column, typeSql) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+  if (!cols.includes(column)) {
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeSql}`).run();
+  }
+}
+
+// Add GameSC screenshots channel column
+addColumnIfMissing("scrims", "gamesc_channel_id", "TEXT");
 
 // ✅ migrate columns (NO sqlite3 CLI needed)
 function addColumnIfMissing(table, column, defSql) {
@@ -351,10 +405,31 @@ CREATE TABLE IF NOT EXISTS result_screenshots (
   FOREIGN KEY(scrim_id) REFERENCES scrims(id) ON DELETE CASCADE
 );
 `);
+db.prepare(`
+CREATE TABLE IF NOT EXISTS scrim_results (
+  scrim_id INTEGER,
+  game INTEGER,
+  team_tag TEXT,
+  place INTEGER,
+  kills INTEGER,
+  points INTEGER,
+  PRIMARY KEY (scrim_id, game, team_tag)
+)`).run();
 
 function colExists(table, col) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(r => r.name);
   return cols.includes(col);
+}
+function placementPoints(place) {
+  const map = {
+    1: 15, 2: 12, 3: 10, 4: 8, 5: 6,
+    6: 4, 7: 3, 8: 2, 9: 1, 10: 1
+  };
+  return map[place] ?? 0;
+}
+
+function totalPoints(place, kills) {
+  return placementPoints(place) + kills;
 }
 
 function addCol(table, colDef) {
@@ -379,6 +454,19 @@ const q = {
       slots_spam = ?
     WHERE id = ? AND guild_id = ?
   `),
+  q.setGameScChannel = db.prepare(`
+  UPDATE scrims SET gamesc_channel_id=? WHERE id=? AND guild_id=?
+  `),
+q.saveResult = db.prepare(`
+  INSERT INTO scrim_results (scrim_id, game, team_tag, place, kills, points)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(scrim_id, game, team_tag)
+  DO UPDATE SET place=excluded.place, kills=excluded.kills, points=excluded.points
+`),
+ q.teamsByScrim = db.prepare(`SELECT * FROM scrim_teams WHERE scrim_id=? ORDER BY slot ASC`);
+ q.resultsByGame = db.prepare(`
+  SELECT * FROM scrim_results WHERE scrim_id=? AND game=?
+`),
   updateScrimSettings: db.prepare(`
   UPDATE scrims SET
     registration_channel_id=?,
@@ -527,7 +615,9 @@ function getMaxGameIdx(scrimId){
 
 // ---------------------- DISCORD BOT ---------------------- //
 const discord = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers,
+GatewayIntentBits.GuildMessages,
+GatewayIntentBits.MessageContent],
   partials: [Partials.Channel],
 });
 
@@ -3427,6 +3517,9 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
               Delete Scrim
             </button>
           </div>
+<label>GameSC Screenshots Channel ID</label>
+<input name="gamescChannelId" value="${esc(scrim.gamesc_channel_id || "")}" placeholder="123456789012345678" />
+<p class="muted">This is the channel where !match is allowed and screenshots are uploaded.</p>
 
         </form>
       `,
@@ -3490,6 +3583,7 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   const confirmChannelId = String(req.body.confirmChannelId || "").trim() || null;
   const teamRoleId = String(req.body.teamRoleId || "").trim() || null;
   const banRoleId = String(req.body.banRoleId || "").trim() || null;
+  const gamescChannelId = (req.body.gamescChannelId || "").trim();
 
   const openAt = String(req.body.openAt || "").trim() || null;
   const closeAt = String(req.body.closeAt || "").trim() || null;
@@ -3518,7 +3612,7 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   scrimId,
   guildId
 );
-
+q.setGameScChannel.run(gamescChannelId || null, scrimId, guildId);
 q.setBanChannel.run(banChannelId, scrimId, guildId);
 q.setAutoPost.run(autoPostReg, autoPostList, autoPostConfirm, scrimId, guildId);
 q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
@@ -3539,6 +3633,100 @@ app.post("/scrims/:id/delete", requireLogin, (req, res) => {
   res.redirect("/scrims");
 });
 
+discord.on("messageCreate", async (msg) => {
+  try {
+    if (!msg.guild || msg.author.bot) return;
+
+    // ---------- START MATCH ----------
+    if (msg.content.startsWith("!match ")) {
+      const parts = msg.content.trim().split(/\s+/);
+
+      // finish
+      if (parts.length === 2 && parts[1].toLowerCase() === "done") {
+        const session = matchSessions.get(msg.channel.id);
+        if (!session) return msg.reply("❌ No active match session in this channel.");
+
+        const { scrimId, game, images } = session;
+        matchSessions.delete(msg.channel.id);
+
+        if (!images.length) return msg.reply("❌ No screenshots uploaded.");
+
+        const scrim = q.scrimById.get(scrimId);
+        if (!scrim) return msg.reply("❌ Scrim not found.");
+
+        const teams = q.teamsByScrim.all(scrimId);
+        const teamTags = teams.map(t => String(t.team_tag || "").toUpperCase()).filter(Boolean);
+
+        let saved = 0;
+
+        for (const url of images) {
+          const text = await ocrImageFromUrl(url);
+          const parsed = parseResults(text, teamTags);
+
+          for (const r of parsed) {
+            const pts = totalPoints(r.place, r.kills);
+            q.saveResult.run(scrimId, game, r.tag, r.place, r.kills, pts);
+            saved++;
+          }
+        }
+
+        return msg.reply(
+          `🏁 **Scrim ${scrimId} • Game ${game} Saved**\n` +
+          `✅ Rows written/updated: **${saved}**\n` +
+          `Tip: If numbers look wrong, upload clearer screenshots (full scoreboard).`
+        );
+      }
+
+      // start: !match <scrimId> <gameNumber>
+      if (parts.length === 3) {
+        const scrimId = Number(parts[1]);
+        const game = Number(parts[2]);
+        if (!scrimId || !game) return msg.reply("❌ Invalid numbers. Use: `!match <scrimId> <gameNumber>`");
+
+        const scrim = q.scrimById.get(scrimId);
+        if (!scrim || String(scrim.guild_id) !== String(msg.guild.id)) {
+          return msg.reply("❌ Scrim not found in this server.");
+        }
+
+        if (!scrim.gamesc_channel_id) {
+          return msg.reply("❌ GameSC channel is not set in scrim settings (panel).");
+        }
+
+        if (String(msg.channel.id) !== String(scrim.gamesc_channel_id)) {
+          return msg.reply(`❌ Use this only in <#${scrim.gamesc_channel_id}>`);
+        }
+
+        matchSessions.set(msg.channel.id, { scrimId, game, images: [] });
+
+        return msg.reply(
+          `✅ **Started OCR session**\n` +
+          `Scrim **${scrimId}** • Game **${game}**\n\n` +
+          `Now upload all result screenshots in this channel.\n` +
+          `When finished type: **!match done**`
+        );
+      }
+
+      // wrong usage
+      return msg.reply("Usage:\n- `!match <scrimId> <gameNumber>`\n- `!match done`");
+    }
+
+    // ---------- COLLECT IMAGES ----------
+    if (msg.attachments.size && matchSessions.has(msg.channel.id)) {
+      const session = matchSessions.get(msg.channel.id);
+      for (const a of msg.attachments.values()) {
+        // accept images only
+        const url = a.url || "";
+        if (/\.(png|jpg|jpeg|webp)$/i.test(url) || a.contentType?.startsWith("image/")) {
+          session.images.push(url);
+        }
+      }
+    }
+
+  } catch (e) {
+    console.error("!match error:", e);
+    try { await msg.reply("❌ OCR failed. Check VM logs + Vision permissions."); } catch {}
+  }
+});
 
 // HEALTH
 app.get("/health", (req, res) => res.json({ ok: true }));
