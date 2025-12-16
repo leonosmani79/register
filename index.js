@@ -3967,6 +3967,9 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
     scrim.slots_spam === "1" ||
     scrim.slots_spam === true;
 
+  // scoring config (defaults if not set)
+  const scoring = getScrimScoring(scrim);
+
   res.send(
     renderLayout({
       title: `Settings • ${scrim.name}`,
