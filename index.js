@@ -128,31 +128,78 @@ function normalizeForLines(t) {
     .replace(/[^A-Z0-9\r\n ]/g, " ");  // strip symbols but keep \n
 }
 
-function parseResults(ocrText, teamTags) {
-  const lines = normalizeForLines(ocrText)
+function parseScoreboardRows(ocrText) {
+  const rawLines = String(ocrText || "")
     .split(/\r?\n/)
     .map(l => l.trim())
     .filter(Boolean);
 
-  const results = [];
+  const rows = [];
+  let i = 0;
 
-  for (const tag of teamTags) {
-    const idx = lines.findIndex(l => l.includes(tag));
-    if (idx === -1) continue;
-
-    const nearby = lines.slice(Math.max(0, idx - 2), idx + 3).join(" ");
-    const nums = nearby.match(/\b\d+\b/g)?.map(Number) || [];
-
-    // heuristic: place 1-25, kills 0-40 (PUBG can be higher sometimes)
-    const place = nums.find(n => n >= 1 && n <= 25);
-    const kills = nums.find(n => n >= 0 && n <= 40 && n !== place);
-
-    if (place != null && kills != null) {
-      results.push({ tag, place, kills });
-    }
+  function isPlaceLine(line) {
+    const m = String(line).trim().match(/^(?:#\s*)?(\d{1,2})$/);
+    if (!m) return null;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n) || n < 1 || n > 25) return null;
+    return n;
   }
 
-  return results;
+  while (i < rawLines.length) {
+    const place = isPlaceLine(rawLines[i]);
+    if (!place) { i++; continue; }
+
+    const seg = [];
+    let j = i + 1;
+    while (j < rawLines.length && isPlaceLine(rawLines[j]) == null) {
+      seg.push(rawLines[j]);
+      j++;
+    }
+
+    const players = [];
+    const kills = [];
+
+    for (const line of seg) {
+      const up = line.toUpperCase();
+
+      // kills like "3 eliminations"
+      const km = up.match(/\b(\d{1,2})\s+ELIMINATION(?:S)?\b/);
+      if (km) {
+        kills.push(Number(km[1]));
+        continue;
+      }
+
+      // skip headings / noise
+      if (up.includes("PUBG") || up.includes("MOBILE") || up.includes("MATCH") || up.includes("RESULT")) continue;
+
+      // candidate player name
+      if (/^\d+$/.test(up)) continue;
+      if (up.includes("ELIMINATION")) continue;
+
+      if (players.length < 4) players.push(line);
+    }
+
+    if (players.length || kills.length) rows.push({ place, players, kills });
+    i = j;
+  }
+
+  return rows;
+}
+
+// teamsForDetect: [{ team_tag, tag, team_name }, ...]
+function parseResults(ocrText, teamsForDetect) {
+  const rows = parseScoreboardRows(ocrText);
+  const out = [];
+
+  for (const row of rows) {
+    const team = detectTeamForRow(row.players, teamsForDetect, 2);
+    if (!team) continue;
+
+    const ksum = row.kills.reduce((a, b) => a + (Number(b) || 0), 0);
+    out.push({ tag: team.team_tag, place: row.place, kills: ksum });
+  }
+
+  return out;
 }
 
 function loadTemplate(templateKey) {
@@ -366,6 +413,8 @@ function addColumnIfMissing(table, column, defSql) {
 addColumnIfMissing("scrims", "slot_template", "TEXT");
 addColumnIfMissing("scrims", "slots_channel_id", "TEXT");
 addColumnIfMissing("scrims", "slots_spam", "INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("scrims", "scoring_json", "TEXT"); // per-scrim scoring config JSON
+
 // auto-post toggles + message ids
 addColumnIfMissing("scrims", "auto_post_reg", "INTEGER NOT NULL DEFAULT 1");
 addColumnIfMissing("scrims", "auto_post_list", "INTEGER NOT NULL DEFAULT 1");
@@ -423,16 +472,115 @@ function colExists(table, col) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(r => r.name);
   return cols.includes(col);
 }
-function placementPoints(place) {
-  const map = {
-    1: 15, 2: 12, 3: 10, 4: 8, 5: 6,
-    6: 4, 7: 3, 8: 2, 9: 1, 10: 1
+function defaultScoring() {
+  return {
+    killPoints: 1,
+    p1: 10,
+    p2: 6,
+    p3: 5,
+    p4: 4,
+    p5: 3,
+    p6: 2,
+    p7: 1,
+    p8: 1,
+    p9plus: 0,
   };
-  return map[place] ?? 0;
 }
 
-function totalPoints(place, kills) {
-  return placementPoints(place) + kills;
+function clampInt(n, min, max, fallback) {
+  n = Number(n);
+  if (!Number.isFinite(n)) return fallback;
+  n = Math.trunc(n);
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
+
+function getScrimScoring(scrim) {
+  const def = defaultScoring();
+  try {
+    const raw = scrim?.scoring_json;
+    if (!raw) return def;
+    const obj = JSON.parse(raw);
+
+    const killPoints = clampInt(obj?.killPoints ?? obj?.kills ?? obj?.kill_points, 0, 50, def.killPoints);
+
+    const p1 = clampInt(obj?.p1 ?? obj?.places?.["1"], 0, 200, def.p1);
+    const p2 = clampInt(obj?.p2 ?? obj?.places?.["2"], 0, 200, def.p2);
+    const p3 = clampInt(obj?.p3 ?? obj?.places?.["3"], 0, 200, def.p3);
+    const p4 = clampInt(obj?.p4 ?? obj?.places?.["4"], 0, 200, def.p4);
+    const p5 = clampInt(obj?.p5 ?? obj?.places?.["5"], 0, 200, def.p5);
+    const p6 = clampInt(obj?.p6 ?? obj?.places?.["6"], 0, 200, def.p6);
+    const p7 = clampInt(obj?.p7 ?? obj?.places?.["7"], 0, 200, def.p7);
+    const p8 = clampInt(obj?.p8 ?? obj?.places?.["8"], 0, 200, def.p8);
+    const p9plus = clampInt(obj?.p9plus ?? obj?.places?.["9+"], 0, 200, def.p9plus);
+
+    return { killPoints, p1, p2, p3, p4, p5, p6, p7, p8, p9plus };
+  } catch {
+    return def;
+  }
+}
+
+function placementPoints(place, scoring = defaultScoring()) {
+  const p = Number(place) || 0;
+  if (p === 1) return scoring.p1;
+  if (p === 2) return scoring.p2;
+  if (p === 3) return scoring.p3;
+  if (p === 4) return scoring.p4;
+  if (p === 5) return scoring.p5;
+  if (p === 6) return scoring.p6;
+  if (p === 7) return scoring.p7;
+  if (p === 8) return scoring.p8;
+  return scoring.p9plus; // 9+
+}
+function normName(s) {
+  return String(s || "")
+    .toUpperCase()
+    .replace(/\s+/g, "")      // remove spaces
+    .replace(/[|._-]/g, "");  // remove common separators
+}
+
+function hasTag(playerName, tag) {
+  const n = normName(playerName);
+  const t = normName(tag);
+  return t && n.includes(t);
+}
+function detectTeamForRow(playerNames, teams, minTagged = 2) {
+  // teams: [{ name: "DarkSide", tag: "DS" }, ...]
+  let best = null;
+
+  for (const team of teams) {
+    const tagged = playerNames.reduce((acc, p) => acc + (hasTag(p, team.tag) ? 1 : 0), 0);
+
+    if (tagged >= minTagged) {
+      // pick the team with the highest tagged count
+      if (!best || tagged > best.tagged) best = { team, tagged };
+    }
+  }
+
+  return best ? best.team : null; // null means “unknown team”
+}
+function scoreRow(row, teams, scoring = defaultScoring()) {
+  const team = detectTeamForRow(row.players, teams, 2);
+  if (!team) return null;
+
+  const kills = row.kills.reduce((a, b) => a + (Number(b) || 0), 0);
+  const pp = placementPoints(row.place, scoring);
+
+  return {
+    scrim_id: row.scrimId,
+    game: row.game,
+    team_tag: team.team_tag,
+    place: row.place,
+    kills,
+    points: pp + (kills * (Number(scoring?.killPoints)||0)),
+  };
+}
+
+function totalPoints(place, kills, scoring = defaultScoring()) {
+  const k = Number(kills) || 0;
+  const kp = Number(scoring?.killPoints) || 0;
+  return placementPoints(place, scoring) + (k * kp);
 }
 
 function addCol(table, colDef) {
@@ -526,6 +674,11 @@ const q = {
   // ✅ GameSC screenshots channel
   setGameScChannel: db.prepare(`
     UPDATE scrims SET gamesc_channel_id=? WHERE id=? AND guild_id=?
+  `),
+
+  // ✅ scoring config json
+  setScoringJson: db.prepare(`
+    UPDATE scrims SET scoring_json=? WHERE id=? AND guild_id=?
   `),
 
   // teams
@@ -2852,6 +3005,22 @@ app.post("/scrims/:id/slotSettings", requireLogin, (req, res) => {
   const slotsSpam = Number(req.body.slots_spam || 0) ? 1 : 0;
 
   q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
+  // Save scoring settings (OCR)
+  const defScoring = defaultScoring();
+  const scoringCfg = {
+    killPoints: clampInt(req.body.killPoints ?? req.body.kill_points, 0, 50, defScoring.killPoints),
+    p1: clampInt(req.body.p1, 0, 200, defScoring.p1),
+    p2: clampInt(req.body.p2, 0, 200, defScoring.p2),
+    p3: clampInt(req.body.p3, 0, 200, defScoring.p3),
+    p4: clampInt(req.body.p4, 0, 200, defScoring.p4),
+    p5: clampInt(req.body.p5, 0, 200, defScoring.p5),
+    p6: clampInt(req.body.p6, 0, 200, defScoring.p6),
+    p7: clampInt(req.body.p7, 0, 200, defScoring.p7),
+    p8: clampInt(req.body.p8, 0, 200, defScoring.p8),
+    p9plus: clampInt(req.body.p9plus, 0, 200, defScoring.p9plus),
+  };
+  q.setScoringJson.run(JSON.stringify(scoringCfg), scrimId, guildId);
+
   res.redirect(`/scrims/${scrimId}/slots`);
 });
 
@@ -3880,7 +4049,35 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
             </div>
           </div>
 
+          
           <hr style="margin:18px 0;opacity:.2"/>
+
+          <h3 class="h" style="font-size:14px">Scoring (OCR)</h3>
+          <p class="muted">Default: 1st=10, 2nd=6, 3rd=5, 4th=4, 5th=3, 6th=2, 7-8=1, 9+=0 • Kill=1</p>
+
+          <div class="row">
+            <div>
+              <label style="margin-top:0">Kill Points</label>
+              <input name="killPoints" value="${esc(scoring.killPoints)}" placeholder="1" />
+            </div>
+            <div>
+              <label style="margin-top:0">9+ Place Points</label>
+              <input name="p9plus" value="${esc(scoring.p9plus)}" placeholder="0" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div><label style="margin-top:0">1st</label><input name="p1" value="${esc(scoring.p1)}" /></div>
+            <div><label style="margin-top:0">2nd</label><input name="p2" value="${esc(scoring.p2)}" /></div>
+            <div><label style="margin-top:0">3rd</label><input name="p3" value="${esc(scoring.p3)}" /></div>
+            <div><label style="margin-top:0">4th</label><input name="p4" value="${esc(scoring.p4)}" /></div>
+          </div>
+          <div class="row">
+            <div><label style="margin-top:0">5th</label><input name="p5" value="${esc(scoring.p5)}" /></div>
+            <div><label style="margin-top:0">6th</label><input name="p6" value="${esc(scoring.p6)}" /></div>
+            <div><label style="margin-top:0">7th</label><input name="p7" value="${esc(scoring.p7)}" /></div>
+            <div><label style="margin-top:0">8th</label><input name="p8" value="${esc(scoring.p8)}" /></div>
+          </div>
 
           <h3 class="h" style="font-size:14px">Slots Posting</h3>
 
@@ -4026,6 +4223,22 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   q.setBanChannel.run(banChannelId, scrimId, guildId);
   q.setAutoPost.run(autoPostReg, autoPostList, autoPostConfirm, scrimId, guildId);
   q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
+  // Save scoring settings (OCR)
+  const defScoring = defaultScoring();
+  const scoringCfg = {
+    killPoints: clampInt(req.body.killPoints ?? req.body.kill_points, 0, 50, defScoring.killPoints),
+    p1: clampInt(req.body.p1, 0, 200, defScoring.p1),
+    p2: clampInt(req.body.p2, 0, 200, defScoring.p2),
+    p3: clampInt(req.body.p3, 0, 200, defScoring.p3),
+    p4: clampInt(req.body.p4, 0, 200, defScoring.p4),
+    p5: clampInt(req.body.p5, 0, 200, defScoring.p5),
+    p6: clampInt(req.body.p6, 0, 200, defScoring.p6),
+    p7: clampInt(req.body.p7, 0, 200, defScoring.p7),
+    p8: clampInt(req.body.p8, 0, 200, defScoring.p8),
+    p9plus: clampInt(req.body.p9plus, 0, 200, defScoring.p9plus),
+  };
+  q.setScoringJson.run(JSON.stringify(scoringCfg), scrimId, guildId);
+
 
   // Refresh auto-post messages
   const fresh = q.scrimById.get(scrimId);
@@ -4067,16 +4280,17 @@ discord.on("messageCreate", async (msg) => {
         if (!scrim) return msg.reply("❌ Scrim not found.");
 
         const teams = q.teamsByScrim.all(scrimId);
-        const teamTags = teams.map(t => String(t.team_tag || "").toUpperCase()).filter(Boolean);
+        const teamsForDetect = teams.map(t => ({ team_tag: String(t.team_tag || "").toUpperCase(), tag: String(t.team_tag || "").toUpperCase(), team_name: t.team_name }));
+        const scoring = getScrimScoring(scrim);
 
         let saved = 0;
 
         for (const url of images) {
           const text = await ocrImageFromUrl(url);
-          const parsed = parseResults(text, teamTags);
+          const parsed = parseResults(text, teamsForDetect);
 
           for (const r of parsed) {
-            const pts = totalPoints(r.place, r.kills);
+            const pts = totalPoints(r.place, r.kills, scoring);
             q.saveResult.run(scrimId, game, r.tag, r.place, r.kills, pts);
             saved++;
           }
