@@ -1129,61 +1129,281 @@ discord.on(Events.InteractionCreate, async (interaction) => {
 
       // ---------- /scrim reg/confirm with required scrim id ----------
       if (interaction.commandName === "scrim") {
-        if (!interaction.inGuild()) {
-          return interaction.reply({ content: "❌ Use this in a server.", ephemeral: true });
+  if (!interaction.inGuild()) {
+    return interaction.reply({ content: "❌ Use this in a server.", ephemeral: true });
+  }
+
+  const member = interaction.member;
+  const can =
+    member?.permissions?.has?.(PermissionFlagsBits.ManageGuild) ||
+    member?.permissions?.has?.(PermissionFlagsBits.Administrator);
+
+  if (!can) return interaction.reply({ content: "❌ Need Manage Server.", ephemeral: true });
+
+  const guildId = String(interaction.guildId);
+  const group = interaction.options.getSubcommandGroup(false); // reg | confirm | post | settings | null
+  const sub = interaction.options.getSubcommand(true);
+
+  // -----------------------------
+  // /scrim panel
+  // -----------------------------
+  if (!group && sub === "panel") {
+    return interaction.reply({ content: `✅ Panel: ${BASE}/panel`, ephemeral: true });
+  }
+
+  // -----------------------------
+  // /scrim list
+  // -----------------------------
+  if (!group && sub === "list") {
+    const scrims = q.scrimsByGuild.all(guildId);
+    if (!scrims.length) {
+      return interaction.reply({ content: "No scrims in this server yet.", ephemeral: true });
+    }
+
+    const text = scrims
+      .slice(0, 15)
+      .map(s => `• **${s.name}** (ID: \`${s.id}\`) — Reg: ${s.registration_open ? "OPEN" : "CLOSED"} — Confirm: ${s.confirm_open ? "OPEN" : "CLOSED"}`)
+      .join("\n");
+
+    return interaction.reply({ content: `📋 **Scrims in this server:**\n${text}`, ephemeral: true });
+  }
+
+  // -----------------------------
+  // /scrim create
+  // -----------------------------
+  if (!group && sub === "create") {
+    const name = interaction.options.getString("name", true);
+    const min = interaction.options.getInteger("min", true);
+    const max = interaction.options.getInteger("max", true);
+
+    q.createScrim.run(
+      guildId,
+      name,
+      min,
+      max,
+      null, null, null, null,
+      null, null, null, null
+    );
+
+    const newId = db.prepare("SELECT last_insert_rowid() AS id").get().id;
+    const fresh = q.scrimById.get(newId);
+    autoPostAll(fresh).catch(() => {});
+
+    return interaction.reply({ content: `✅ Scrim created: **${name}** (ID: \`${newId}\`)`, ephemeral: true });
+  }
+
+  // -------------------------------------------
+  // Everything below needs Scrim ID
+  // -------------------------------------------
+  const scrimId = interaction.options.getInteger("id", true);
+  let scrim = q.scrimById.get(scrimId);
+
+  if (!scrim || String(scrim.guild_id) !== guildId) {
+    return interaction.reply({ content: "❌ Scrim not found in this server.", ephemeral: true });
+  }
+
+  // -----------------------------
+  // /scrim reg open|close
+  // -----------------------------
+  if (group === "reg") {
+    const next = sub === "open" ? 1 : 0;
+    q.setRegOpen.run(next, scrimId, guildId);
+
+    scrim = q.scrimById.get(scrimId);
+    autoPostAll(scrim).catch(() => {});
+
+    return interaction.reply({
+      content: `✅ Registration ${next ? "OPENED" : "CLOSED"} for **${scrim.name}** (ID: ${scrim.id})`,
+      ephemeral: true,
+    });
+  }
+
+  // -----------------------------
+  // /scrim confirm open|close
+  // -----------------------------
+  if (group === "confirm") {
+    const next = sub === "open" ? 1 : 0;
+    q.setConfirmOpen.run(next, scrimId, guildId);
+
+    scrim = q.scrimById.get(scrimId);
+    autoPostAll(scrim).catch(() => {});
+
+    return interaction.reply({
+      content: `✅ Confirms ${next ? "OPENED" : "CLOSED"} for **${scrim.name}** (ID: ${scrim.id})`,
+      ephemeral: true,
+    });
+  }
+
+  // -----------------------------
+  // /scrim post reg|list|confirm|slots
+  // -----------------------------
+  if (group === "post") {
+    await interaction.deferReply({ ephemeral: true });
+
+    if (sub === "reg") {
+      await ensureRegMessage(scrim).catch(() => {});
+      return interaction.editReply({ content: "✅ Posted/updated registration message." });
+    }
+
+    if (sub === "list") {
+      await ensureListMessage(scrim).catch(() => {});
+      return interaction.editReply({ content: "✅ Posted/updated teams list." });
+    }
+
+    if (sub === "confirm") {
+      await ensureConfirmMessage(scrim).catch(() => {});
+      return interaction.editReply({ content: "✅ Posted/updated confirm message." });
+    }
+
+    if (sub === "slots") {
+      // Uses same logic as panel route
+      if (!scrim.slot_template) return interaction.editReply({ content: "❌ No slot template set." });
+      if (!scrim.slots_channel_id) return interaction.editReply({ content: "❌ No slots channel set." });
+
+      try {
+        const guild = await discord.guilds.fetch(scrim.guild_id);
+        const chan = await guild.channels.fetch(scrim.slots_channel_id).catch(() => null);
+        if (!chan || !chan.isTextBased()) return interaction.editReply({ content: "❌ Slots channel invalid." });
+
+        const teams = q.teamsByScrim.all(scrimId);
+        const bySlot = new Map(teams.map((t) => [t.slot, t]));
+
+        for (let slot = scrim.min_slot; slot <= scrim.max_slot; slot++) {
+          const t = bySlot.get(slot);
+          const name = t ? t.team_name : "EMPTY";
+          const tag = t ? t.team_tag : "";
+
+          const filePath = await renderSlotGif({
+            templateKey: scrim.slot_template,
+            scrimId,
+            slot,
+            teamName: name,
+            teamTag: tag,
+          });
+
+          await chan.send({ files: [filePath] });
+          if (!scrim.slots_spam) break;
         }
 
-        const member = interaction.member;
-        const can =
-          member?.permissions?.has?.(PermissionFlagsBits.ManageGuild) ||
-          member?.permissions?.has?.(PermissionFlagsBits.Administrator);
-
-        if (!can) return interaction.reply({ content: "❌ Need Manage Server.", ephemeral: true });
-
-        const guildId = String(interaction.guildId);
-
-        const group = interaction.options.getSubcommandGroup(false); // "reg" | "confirm" | null
-        const sub = interaction.options.getSubcommand(true); // "open" | "close" | ...
-
-        // require scrim id for reg/confirm groups
-        if (group === "reg" || group === "confirm") {
-          const scrimId = interaction.options.getInteger("id", true);
-          const scrim = q.scrimById.get(scrimId);
-
-          if (!scrim || String(scrim.guild_id) !== guildId) {
-            return interaction.reply({ content: "❌ Scrim not found in this server.", ephemeral: true });
-          }
-
-          if (group === "reg") {
-            const next = sub === "open" ? 1 : 0;
-            q.setRegOpen.run(next, scrim.id, guildId);
-
-            const fresh = q.scrimById.get(scrim.id);
-            await autoPostAll(fresh).catch(() => {});
-
-            return interaction.reply({
-              content: `✅ Registration ${next ? "OPENED" : "CLOSED"} for **${fresh.name}** (ID: ${fresh.id})`,
-              ephemeral: true,
-            });
-          }
-
-          if (group === "confirm") {
-            const next = sub === "open" ? 1 : 0;
-            q.setConfirmOpen.run(next, scrim.id, guildId);
-
-            const fresh = q.scrimById.get(scrim.id);
-            await autoPostAll(fresh).catch(() => {});
-
-            return interaction.reply({
-              content: `✅ Confirms ${next ? "OPENED" : "CLOSED"} for **${fresh.name}** (ID: ${fresh.id})`,
-              ephemeral: true,
-            });
-          }
-        }
-
-        // if you add more /scrim subcommands later, handle them here
-        return interaction.reply({ content: "❌ Unknown /scrim command.", ephemeral: true });
+        return interaction.editReply({ content: "✅ Slots posted." });
+      } catch (e) {
+        console.error("slots post slash error:", e);
+        return interaction.editReply({ content: "❌ Failed to post slots. Check logs." });
       }
+    }
+  }
+
+  // -----------------------------
+  // /scrim settings set (...)
+  // -----------------------------
+  if (group === "settings" && sub === "set") {
+    // start with existing, override only provided
+    const regCh = interaction.options.getChannel("reg_channel")?.id ?? scrim.registration_channel_id;
+    const listCh = interaction.options.getChannel("list_channel")?.id ?? scrim.list_channel_id;
+    const confCh = interaction.options.getChannel("confirm_channel")?.id ?? scrim.confirm_channel_id;
+    const slotsCh = interaction.options.getChannel("slots_channel")?.id ?? scrim.slots_channel_id;
+    const banlogCh = interaction.options.getChannel("banlog_channel")?.id ?? scrim.ban_channel_id;
+
+    const teamRole = interaction.options.getRole("team_role")?.id ?? scrim.team_role_id;
+    const banRole = interaction.options.getRole("ban_role")?.id ?? scrim.ban_role_id;
+
+    const slotTemplate = interaction.options.getString("slot_template") ?? scrim.slot_template;
+    const slotsSpam = interaction.options.getBoolean("slots_spam");
+    const slotsSpamVal = slotsSpam == null ? scrim.slots_spam : (slotsSpam ? 1 : 0);
+
+    q.updateScrimSettings.run(
+      regCh, listCh, confCh,
+      teamRole, banRole,
+      scrim.open_at, scrim.close_at,
+      scrim.confirm_open_at, scrim.confirm_close_at,
+      scrimId, guildId
+    );
+
+    q.updateSlotsSettings.run(slotTemplate, slotsCh, slotsSpamVal, scrimId, guildId);
+    q.setBanChannel.run(banlogCh, scrimId, guildId);
+
+    scrim = q.scrimById.get(scrimId);
+    autoPostAll(scrim).catch(() => {});
+
+    return interaction.reply({ content: "✅ Settings updated and auto-post refreshed.", ephemeral: true });
+  }
+
+  // -----------------------------
+  // /scrim ban
+  // -----------------------------
+  if (!group && sub === "ban") {
+    const user = interaction.options.getUser("user", true);
+    const reason = interaction.options.getString("reason") || "Banned by staff";
+    const duration = interaction.options.getString("duration") || "perm";
+
+    let expiresAt = null;
+    const ms = parseDurationToMs(duration);
+    if (ms === null) {
+      return interaction.reply({ content: "❌ Invalid duration. Use 0|perm|1h|6h|1d|7d|30d", ephemeral: true });
+    }
+    if (ms > 0) expiresAt = new Date(Date.now() + ms).toISOString();
+
+    q.banUpsert.run(guildId, user.id, reason, expiresAt);
+
+    // give ban role if set
+    if (scrim.ban_role_id) {
+      try {
+        const guild = await discord.guilds.fetch(guildId);
+        const mem = await guild.members.fetch(user.id);
+        await mem.roles.add(scrim.ban_role_id).catch(() => {});
+      } catch {}
+    }
+
+    return interaction.reply({
+      content: `⛔ Banned <@${user.id}> (${expiresAt ? "until " + expiresAt : "PERMANENT"})`,
+      ephemeral: true,
+    });
+  }
+
+  // -----------------------------
+  // /scrim unban
+  // -----------------------------
+  if (!group && sub === "unban") {
+    const user = interaction.options.getUser("user", true);
+    q.unban.run(guildId, user.id);
+
+    if (scrim.ban_role_id) {
+      try {
+        const guild = await discord.guilds.fetch(guildId);
+        const mem = await guild.members.fetch(user.id);
+        await mem.roles.remove(scrim.ban_role_id).catch(() => {});
+      } catch {}
+    }
+
+    return interaction.reply({ content: `✅ Unbanned <@${user.id}>`, ephemeral: true });
+  }
+
+  // -----------------------------
+  // /scrim clear
+  // -----------------------------
+  if (!group && sub === "clear") {
+    db.prepare("DELETE FROM teams WHERE scrim_id=?").run(scrimId);
+    db.prepare("DELETE FROM results WHERE scrim_id=?").run(scrimId);
+    db.prepare("DELETE FROM results_points WHERE scrim_id=?").run(scrimId);
+    q.setRegOpen.run(0, scrimId, guildId);
+    q.setConfirmOpen.run(0, scrimId, guildId);
+
+    const fresh = q.scrimById.get(scrimId);
+    autoPostAll(fresh).catch(() => {});
+    return interaction.reply({ content: "✅ Scrim cleared (teams + results removed).", ephemeral: true });
+  }
+
+  // -----------------------------
+  // /scrim delete
+  // -----------------------------
+  if (!group && sub === "delete") {
+    db.prepare("DELETE FROM scrims WHERE id=? AND guild_id=?").run(scrimId, guildId);
+    return interaction.reply({ content: `🗑️ Deleted scrim ${scrimId}`, ephemeral: true });
+  }
+
+  return interaction.reply({ content: "❌ Unknown scrim command.", ephemeral: true });
+}
+
     }
 
     // =========================
@@ -3425,18 +3645,19 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
   const scrimId = Number(req.params.id);
 
   const scrim = q.scrimById.get(scrimId);
-  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+  if (!scrim || String(scrim.guild_id) !== String(guildId)) {
+    return res.status(404).send("Scrim not found");
+  }
 
-  // ✅ safe templates list (won't crash page)
+  // safe templates list
   let templates = [];
   try {
     const t = typeof listTemplates === "function" ? listTemplates() : [];
     templates = Array.isArray(t) ? t : [];
-  } catch (e) {
+  } catch {
     templates = [];
   }
 
-  // ✅ normalize spam to boolean
   const slotsSpamOn =
     scrim.slots_spam === 1 ||
     scrim.slots_spam === "1" ||
@@ -3496,6 +3717,11 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
 
           <label>Ban Role ID (given on ban, blocks register)</label>
           <input name="banRoleId" value="${esc(scrim.ban_role_id || "")}" placeholder="123..." />
+
+          <!-- ✅ GameSC -->
+          <label>GameSC Screenshots Channel ID</label>
+          <input name="gamescChannelId" value="${esc(scrim.gamesc_channel_id || "")}" placeholder="123..." />
+          <p class="muted">This is the channel where <b>!match &lt;scrimId&gt; &lt;game&gt;</b> is allowed and screenshots are uploaded.</p>
 
           <div class="row">
             <div>
@@ -3560,15 +3786,13 @@ app.get("/scrims/:id/settings", requireLogin, (req, res) => {
               Delete Scrim
             </button>
           </div>
-<label>GameSC Screenshots Channel ID</label>
-<input name="gamescChannelId" value="${esc(scrim.gamesc_channel_id || "")}" placeholder="123456789012345678" />
-<p class="muted">This is the channel where !match is allowed and screenshots are uploaded.</p>
 
         </form>
       `,
     })
   );
 });
+
 app.get("/scrims/:id/postSlotsNow", requireLogin, async (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
@@ -3619,19 +3843,24 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   const scrimId = Number(req.params.id);
 
   const scrim = q.scrimById.get(scrimId);
-  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+  if (!scrim || String(scrim.guild_id) !== String(guildId)) {
+    return res.status(404).send("Scrim not found");
+  }
 
   const registrationChannelId = String(req.body.registrationChannelId || "").trim() || null;
   const listChannelId = String(req.body.listChannelId || "").trim() || null;
   const confirmChannelId = String(req.body.confirmChannelId || "").trim() || null;
+
   const teamRoleId = String(req.body.teamRoleId || "").trim() || null;
   const banRoleId = String(req.body.banRoleId || "").trim() || null;
-  const gamescChannelId = (req.body.gamescChannelId || "").trim();
+
+  const gamescChannelId = String(req.body.gamescChannelId || "").trim() || null;
 
   const openAt = String(req.body.openAt || "").trim() || null;
   const closeAt = String(req.body.closeAt || "").trim() || null;
   const confirmOpenAt = String(req.body.confirmOpenAt || "").trim() || null;
   const confirmCloseAt = String(req.body.confirmCloseAt || "").trim() || null;
+
   const banChannelId = String(req.body.banChannelId || "").trim() || null;
 
   const autoPostReg = Number(req.body.autoPostReg || 0) ? 1 : 0;
@@ -3642,30 +3871,35 @@ app.post("/scrims/:id/settings", requireLogin, (req, res) => {
   const slotTemplate = String(req.body.slotTemplate || "").trim() || null;
   const slotsSpam = Number(req.body.slotsSpam || 0) ? 1 : 0;
 
+  // Save main settings
   q.updateScrimSettings.run(
-  registrationChannelId,
-  listChannelId,
-  confirmChannelId,
-  teamRoleId,
-  banRoleId,
-  openAt,
-  closeAt,
-  confirmOpenAt,
-  confirmCloseAt,
-  scrimId,
-  guildId
-);
-q.setGameScChannel.run(gamescChannelId || null, scrimId, guildId);
-q.setBanChannel.run(banChannelId, scrimId, guildId);
-q.setAutoPost.run(autoPostReg, autoPostList, autoPostConfirm, scrimId, guildId);
-q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
+    registrationChannelId,
+    listChannelId,
+    confirmChannelId,
+    teamRoleId,
+    banRoleId,
+    openAt,
+    closeAt,
+    confirmOpenAt,
+    confirmCloseAt,
+    scrimId,
+    guildId
+  );
 
-const fresh = q.scrimById.get(scrimId);
-autoPostAll(fresh).catch(() => {});
+  // Save extra settings
+  q.setGameScChannel.run(gamescChannelId, scrimId, guildId);
+  q.setBanChannel.run(banChannelId, scrimId, guildId);
+  q.setAutoPost.run(autoPostReg, autoPostList, autoPostConfirm, scrimId, guildId);
+  q.updateSlotsSettings.run(slotTemplate, slotsChannelId, slotsSpam, scrimId, guildId);
 
+  // Refresh auto-post messages
+  const fresh = q.scrimById.get(scrimId);
+  autoPostAll(fresh).catch(() => {});
 
-  res.redirect(`/scrims/${scrimId}`);
+  return res.redirect(`/scrims/${scrimId}`);
 });
+
+
 app.post("/scrims/:id/delete", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
