@@ -3249,86 +3249,221 @@ app.post("/scrims/:id/unban", requireLogin, async (req, res) => {
 app.get("/scrims/:id/results", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
+
   const scrim = q.scrimById.get(scrimId);
   if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
 
-  ensureGame1(scrimId);
-  const games = q.gamesByScrim.all(scrimId);
+  // teams list (registered)
   const teams = q.teamsByScrim.all(scrimId);
 
+  // manual points table (old UI)
   const pointsRows = q.pointsByScrim.all(scrimId);
-  const pointMap = new Map(pointsRows.map(p => [`${p.slot}:${p.game_idx}`, p.points]));
+  const games = q.gamesByScrim.all(scrimId);
 
-  const headCols = games.map(g => `<th>G${g.idx}</th>`).join("");
+  // ✅ OCR results (NEW)
+  const ocrRows = db.prepare(`
+    SELECT scrim_id, game, team_tag, place, kills, points
+    FROM scrim_results
+    WHERE scrim_id=?
+    ORDER BY game ASC, points DESC, kills DESC, place ASC, team_tag ASC
+  `).all(scrimId);
 
-  const rows = teams.map(t => {
-    const cols = games.map(g => {
-      const v = pointMap.get(`${t.slot}:${g.idx}`) ?? 0;
-      return `<td><input name="p_${t.slot}_${g.idx}" type="number" value="${v}" /></td>`;
-    }).join("");
+  const ocrByGame = new Map();
+  for (const r of ocrRows) {
+    if (!ocrByGame.has(r.game)) ocrByGame.set(r.game, []);
+    ocrByGame.get(r.game).push(r);
+  }
 
-    return `
-      <tr>
-        <td>#${t.slot}</td>
-        <td><b>${esc(t.team_name)}</b> <span class="muted">[${esc(t.team_tag)}]</span></td>
-        ${cols}
-      </tr>
-    `;
-  }).join("");
+  // Aggregate OCR totals by team_tag
+  const agg = new Map();
+  for (const r of ocrRows) {
+    const tag = (r.team_tag || "").trim();
+    if (!tag) continue;
+    if (!agg.has(tag)) agg.set(tag, { team_tag: tag, games: 0, kills: 0, points: 0 });
+    const a = agg.get(tag);
+    a.games += 1;
+    a.kills += Number(r.kills || 0);
+    a.points += Number(r.points || 0);
+  }
+
+  // Try to match OCR team_tag -> registered team slot/name
+  const tagToTeam = new Map();
+  for (const t of teams) {
+    const tag = (t.team_tag || "").trim();
+    if (tag && !tagToTeam.has(tag)) tagToTeam.set(tag, t);
+  }
+
+  // Build leaderboard rows including teams with 0 OCR points (so you see "every team")
+  const leaderboard = teams.map(t => {
+    const tag = (t.team_tag || "").trim();
+    const a = agg.get(tag) || { games: 0, kills: 0, points: 0, team_tag: tag };
+    return {
+      slot: t.slot,
+      team_tag: tag,
+      team_name: t.team_name,
+      games: a.games,
+      kills: a.kills,
+      points: a.points,
+    };
+  });
+
+  // Add OCR tags that are NOT registered (still show them)
+  for (const [tag, a] of agg.entries()) {
+    if (!tagToTeam.has(tag)) {
+      leaderboard.push({
+        slot: "",
+        team_tag: tag,
+        team_name: "(not registered)",
+        games: a.games,
+        kills: a.kills,
+        points: a.points,
+      });
+    }
+  }
+
+  leaderboard.sort((x, y) => (y.points - x.points) || (y.kills - x.kills) || ((x.slot || 9999) - (y.slot || 9999)));
+
+  // Manual points view model (existing)
+  const gameCount = Math.max(4, games.length || 0);
+  const gameIdxs = Array.from({ length: gameCount }, (_, i) => i + 1);
+
+  const bySlot = new Map(); // slot -> {slot, games: Map(game_idx -> points)}
+  for (const r of pointsRows) {
+    if (!bySlot.has(r.slot)) bySlot.set(r.slot, { slot: r.slot, games: new Map() });
+    bySlot.get(r.slot).games.set(r.game_idx, r.points);
+  }
+
+  const pointsTable = teams.map(t => {
+    const row = bySlot.get(t.slot) || { slot: t.slot, games: new Map() };
+    const perGame = gameIdxs.map(g => Number(row.games.get(g) || 0));
+    const total = perGame.reduce((a, b) => a + b, 0);
+    return { slot: t.slot, team_name: t.team_name, team_tag: t.team_tag, perGame, total };
+  });
 
   res.send(renderLayout({
-    title: "Results",
+    title: `Results • ${scrim.name}`,
     user: req.session.user,
     selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
     active: "scrims",
     body: `
       <h2 class="h">${esc(scrim.name)} — Results</h2>
 
-      <div class="row" style="margin:12px 0">
-        <form method="POST" action="/scrims/${scrimId}/results/addGame" style="margin:0">
-          <button class="btn2" type="submit">➕ Add Game</button>
-        </form>
-        <a class="btn2" href="/scrims/${scrimId}">Back to Table</a>
-        <a class="btn2" href="/scrims/${scrimId}/settings">Settings</a>
-      </div>
+      <div class="card" style="margin-top:12px">
+        <h3 class="h" style="margin:0 0 8px 0">✅ OCR Leaderboard (auto)</h3>
+        <p class="muted" style="margin-top:0">
+          This section shows what your <code>!match</code> OCR saved in <code>scrim_results</code>.
+          It includes all registered teams (even if they have 0 points so far).
+        </p>
 
-      <form method="POST" action="/scrims/${scrimId}/results">
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Slot</th><th>Team</th>${headCols}</tr></thead>
-            <tbody>${rows || `<tr><td colspan="${2 + games.length}">No teams yet.</td></tr>`}</tbody>
+        <div class="tablewrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Slot</th>
+                <th>Tag</th>
+                <th>Team</th>
+                <th>Games</th>
+                <th>Kills</th>
+                <th>Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${leaderboard.map((r, i) => `
+                <tr>
+                  <td>${i + 1}</td>
+                  <td>${esc(String(r.slot ?? ""))}</td>
+                  <td><b>${esc(r.team_tag || "")}</b></td>
+                  <td>${esc(r.team_name || "")}</td>
+                  <td>${esc(String(r.games || 0))}</td>
+                  <td>${esc(String(r.kills || 0))}</td>
+                  <td><b>${esc(String(r.points || 0))}</b></td>
+                </tr>
+              `).join("")}
+            </tbody>
           </table>
         </div>
-        <div style="margin-top:12px">
-          <button type="submit">Save Results</button>
-        </div>
-      </form>
 
-      <hr style="margin:18px 0;opacity:.2"/>
+        <hr style="margin:16px 0; opacity:.2" />
 
-      <h3 class="h" style="font-size:14px">Screenshots (per game)</h3>
-      ${games.map(g=>{
-        const shots = q.screenshotsByScrim.all(scrimId, g.idx);
-        return `
-          <div style="margin:14px 0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(15,23,42,.55)">
-            <div class="muted" style="margin-bottom:8px">Game ${g.idx} screenshots</div>
-            <form method="POST" action="/scrims/${scrimId}/results/${g.idx}/upload" enctype="multipart/form-data">
-              <input type="file" name="shots" multiple accept="image/png,image/jpeg,image/jpg" />
-              <button class="btn2" type="submit" style="margin-top:10px">Upload</button>
-            </form>
-            <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
-              ${shots.slice(0,12).map(s=>`
-                <a href="/results/${esc(s.filename)}" target="_blank" class="btn2" style="padding:6px 10px;border-radius:10px">
-                  🖼️ ${esc(s.filename)}
-                </a>
-              `).join("") || `<div class="muted">No uploads yet.</div>`}
+        <h4 class="h" style="margin:0 0 8px 0">Per-game OCR tables</h4>
+        ${Array.from(ocrByGame.entries()).sort((a,b)=>a[0]-b[0]).map(([g, rows]) => `
+          <details style="margin:10px 0">
+            <summary style="cursor:pointer"><b>Game ${g}</b> — ${rows.length} rows</summary>
+            <div class="tablewrap" style="margin-top:10px">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Slot</th>
+                    <th>Tag</th>
+                    <th>Team</th>
+                    <th>Place</th>
+                    <th>Kills</th>
+                    <th>Points</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows.map(r => {
+                    const t = tagToTeam.get((r.team_tag || "").trim());
+                    return `
+                      <tr>
+                        <td>${esc(String(t?.slot ?? ""))}</td>
+                        <td><b>${esc(r.team_tag || "")}</b></td>
+                        <td>${esc(t?.team_name || "(not registered)")}</td>
+                        <td>${esc(String(r.place ?? ""))}</td>
+                        <td>${esc(String(r.kills ?? 0))}</td>
+                        <td><b>${esc(String(r.points ?? 0))}</b></td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
             </div>
+          </details>
+        `).join("") || `<p class="muted">No OCR results saved yet.</p>`}
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <h3 class="h" style="margin:0 0 8px 0">🧾 Manual Points Table (old)</h3>
+        <p class="muted" style="margin-top:0">This is your old points UI (results_points). Keep it if you still use it.</p>
+
+        <form method="POST" action="/scrims/${scrimId}/results">
+          <div class="tablewrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Slot</th>
+                  <th>Team</th>
+                  ${gameIdxs.map(i => `<th>${esc(games.find(x=>x.idx===i)?.name || ("Game " + i))}</th>`).join("")}
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pointsTable.map(r => `
+                  <tr>
+                    <td>${esc(String(r.slot))}</td>
+                    <td>${esc(r.team_name)} <span class="muted">(${esc(r.team_tag || "")})</span></td>
+                    ${r.perGame.map((p, gi) => `
+                      <td>
+                        <input type="number" name="p_${r.slot}_${gi + 1}" value="${esc(String(p))}" style="width:80px">
+                      </td>
+                    `).join("")}
+                    <td><b>${esc(String(r.total))}</b></td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
           </div>
-        `;
-      }).join("")}
+
+          <div style="margin-top:12px">
+            <button class="btn" type="submit">Save Manual Points</button>
+          </div>
+        </form>
+      </div>
     `
   }));
 });
+
 app.post("/scrims/:id/results/addGame", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
   const scrimId = Number(req.params.id);
