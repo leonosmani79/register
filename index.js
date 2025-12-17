@@ -468,6 +468,18 @@ CREATE TABLE IF NOT EXISTS scrim_results (
   PRIMARY KEY (scrim_id, game, team_tag)
 )`).run();
 
+db.prepare(`
+CREATE TABLE IF NOT EXISTS scrim_results_manual (
+  scrim_id INTEGER,
+  game INTEGER,
+  team_tag TEXT,
+  place INTEGER,
+  kills INTEGER,
+  points INTEGER,
+  PRIMARY KEY (scrim_id, game, team_tag)
+)`).run();
+
+
 function colExists(table, col) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(r => r.name);
   return cols.includes(col);
@@ -754,6 +766,25 @@ const q = {
     ON CONFLICT(scrim_id, game, team_tag)
     DO UPDATE SET place=excluded.place, kills=excluded.kills, points=excluded.points
   `),
+  // ✅ Manual override results (editable)
+  saveManualResult: db.prepare(`
+    INSERT INTO scrim_results_manual (scrim_id, game, team_tag, place, kills, points)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(scrim_id, game, team_tag)
+    DO UPDATE SET place=excluded.place, kills=excluded.kills, points=excluded.points
+  `),
+
+  manualResultsByGame: db.prepare(`
+    SELECT * FROM scrim_results_manual WHERE scrim_id=? AND game=? ORDER BY points DESC, kills DESC, place ASC, team_tag ASC
+  `),
+
+  manualAllByScrim: db.prepare(`
+    SELECT * FROM scrim_results_manual WHERE scrim_id=? ORDER BY game ASC, points DESC, kills DESC, place ASC, team_tag ASC
+  `),
+
+  clearManualGame: db.prepare(`DELETE FROM scrim_results_manual WHERE scrim_id=? AND game=?`),
+  clearManualScrim: db.prepare(`DELETE FROM scrim_results_manual WHERE scrim_id=?`),
+
 
   resultsByGame: db.prepare(`
     SELECT * FROM scrim_results WHERE scrim_id=? AND game=?
@@ -3429,31 +3460,94 @@ app.get("/scrims/:id/results", requireLogin, (req, res) => {
   const pointsRows = q.pointsByScrim.all(scrimId);
   const games = q.gamesByScrim.all(scrimId);
 
-  // ✅ OCR results (NEW)
-  const ocrRows = db.prepare(`
-    SELECT scrim_id, game, team_tag, place, kills, points
-    FROM scrim_results
-    WHERE scrim_id=?
-    ORDER BY game ASC, points DESC, kills DESC, place ASC, team_tag ASC
-  `).all(scrimId);
+  
+// ✅ OCR results (auto)
+const ocrRows = db.prepare(`
+  SELECT scrim_id, game, team_tag, place, kills, points
+  FROM scrim_results
+  WHERE scrim_id=?
+  ORDER BY game ASC, points DESC, kills DESC, place ASC, team_tag ASC
+`).all(scrimId);
 
-  const ocrByGame = new Map();
-  for (const r of ocrRows) {
-    if (!ocrByGame.has(r.game)) ocrByGame.set(r.game, []);
-    ocrByGame.get(r.game).push(r);
+// ✅ Manual overrides (editable)
+const manualRows = q.manualAllByScrim.all(scrimId);
+
+// Merge: manual overrides OCR per (game, team_tag)
+const key = (r) => `${r.game}::${(r.team_tag||"").trim().toUpperCase()}`;
+const manualMap = new Map();
+for (const r of manualRows) manualMap.set(key(r), r);
+
+const mergedRows = [];
+const seen = new Set();
+
+for (const r of ocrRows) {
+  const k = key(r);
+  if (manualMap.has(k)) {
+    mergedRows.push(manualMap.get(k));
+  } else {
+    mergedRows.push(r);
   }
+  seen.add(k);
+}
+for (const r of manualRows) {
+  const k = key(r);
+  if (seen.has(k)) continue;
+  mergedRows.push(r);
+  seen.add(k);
+}
 
+const ocrByGame = new Map();
+for (const r of ocrRows) {
+  if (!ocrByGame.has(r.game)) ocrByGame.set(r.game, []);
+  ocrByGame.get(r.game).push(r);
+}
+
+const manualByGame = new Map();
+for (const r of manualRows) {
+  if (!manualByGame.has(r.game)) manualByGame.set(r.game, []);
+  manualByGame.get(r.game).push(r);
+}
+
+const mergedByGame = new Map();
+for (const r of mergedRows) {
+  if (!mergedByGame.has(r.game)) mergedByGame.set(r.game, []);
+  mergedByGame.get(r.game).push(r);
+}
+
+const scoring = getScrimScoring(scrim);
+
+// Aggregate totals by team_tag (merged = OCR + manual overrides)
   // Aggregate OCR totals by team_tag
-  const agg = new Map();
-  for (const r of ocrRows) {
-    const tag = (r.team_tag || "").trim();
-    if (!tag) continue;
-    if (!agg.has(tag)) agg.set(tag, { team_tag: tag, games: 0, kills: 0, points: 0 });
-    const a = agg.get(tag);
-    a.games += 1;
-    a.kills += Number(r.kills || 0);
-    a.points += Number(r.points || 0);
-  }
+  
+const agg = new Map();
+const gamesByTag = new Map(); // tag -> Set(game)
+for (const r of mergedRows) {
+  const tag = (r.team_tag || "").trim();
+  if (!tag) continue;
+
+  const place = Number(r.place || 0);
+  const kills = Number(r.kills || 0);
+
+  const placePts = placementPoints(place, scoring);
+  const killPts = kills * Number(scoring.killPoints || 0);
+  const totalPts = placePts + killPts;
+
+  if (!agg.has(tag)) agg.set(tag, { team_tag: tag, games: 0, kills: 0, placement_points: 0, kill_points: 0, points: 0 });
+  const a = agg.get(tag);
+
+  if (!gamesByTag.has(tag)) gamesByTag.set(tag, new Set());
+  gamesByTag.get(tag).add(Number(r.game || 0));
+
+  a.kills += kills;
+  a.placement_points += placePts;
+  a.kill_points += killPts;
+  a.points += totalPts;
+}
+for (const [tag, set] of gamesByTag.entries()) {
+  if (agg.has(tag)) agg.get(tag).games = set.size;
+}
+
+// Try to match team_tag -> registered team slot/name
 
   // Try to match OCR team_tag -> registered team slot/name
   const tagToTeam = new Map();
@@ -3465,13 +3559,15 @@ app.get("/scrims/:id/results", requireLogin, (req, res) => {
   // Build leaderboard rows including teams with 0 OCR points (so you see "every team")
   const leaderboard = teams.map(t => {
     const tag = (t.team_tag || "").trim();
-    const a = agg.get(tag) || { games: 0, kills: 0, points: 0, team_tag: tag };
+    const a = agg.get(tag) || { games: 0, kills: 0, placement_points: 0, kill_points: 0, points: 0, team_tag: tag };
     return {
       slot: t.slot,
       team_tag: tag,
       team_name: t.team_name,
       games: a.games,
+      placement_points: a.placement_points || 0,
       kills: a.kills,
+      kill_points: a.kill_points || 0,
       points: a.points,
     };
   });
@@ -3484,7 +3580,9 @@ app.get("/scrims/:id/results", requireLogin, (req, res) => {
         team_tag: tag,
         team_name: "(not registered)",
         games: a.games,
+        placement_points: a.placement_points || 0,
         kills: a.kills,
+        kill_points: a.kill_points || 0,
         points: a.points,
       });
     }
@@ -3533,8 +3631,10 @@ app.get("/scrims/:id/results", requireLogin, (req, res) => {
                 <th>Tag</th>
                 <th>Team</th>
                 <th>Games</th>
+                <th>Placement</th>
                 <th>Kills</th>
-                <th>Points</th>
+                <th>Kill Pts</th>
+                <th>Total</th>
               </tr>
             </thead>
             <tbody>
@@ -3545,12 +3645,28 @@ app.get("/scrims/:id/results", requireLogin, (req, res) => {
                   <td><b>${esc(r.team_tag || "")}</b></td>
                   <td>${esc(r.team_name || "")}</td>
                   <td>${esc(String(r.games || 0))}</td>
+                  <td>${esc(String(r.placement_points || 0))}</td>
                   <td>${esc(String(r.kills || 0))}</td>
+                  <td>${esc(String(r.kill_points || 0))}</td>
                   <td><b>${esc(String(r.points || 0))}</b></td>
                 </tr>
               `).join("")}
             </tbody>
-          </table>
+          
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+          <form method="POST" action="/scrims/${scrimId}/results/addGame" style="margin:0">
+            <button class="btn" type="submit">Add Game</button>
+          </form>
+          <div class="muted" style="font-size:13px">Tip: Use “Add Game” then open the Game editor to set placements + kills if OCR is wrong.</div>
+        </div>
+
+        <div style="margin-top:10px">
+          ${games.map(g => `
+            <a class="btn" style="margin:4px 6px 4px 0" href="/scrims/${scrimId}/results/game/${g.idx}">Edit Game ${g.idx}</a>
+          `).join("")}
+        </div>
+
+</table>
         </div>
 
         <hr style="margin:16px 0; opacity:.2" />
@@ -3646,9 +3762,165 @@ app.post("/scrims/:id/results/addGame", requireLogin, (req, res) => {
     q.addGame.run(scrimId, next, `Game ${next}`);
   } catch {}
 
+  res.redirect(`/scrims/${scrimId}/results/game/${next}`);
+});
+
+
+
+// Manual per-game editor (override OCR)
+// ----------------------------------------------------
+app.get("/scrims/:id/results/game/:gameIdx", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const gameIdx = Number(req.params.gameIdx);
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  ensureGame1(scrimId);
+
+  // ensure this game exists in scrim_games
+  const gRow = q.gameByIdx?.get?.(scrimId, gameIdx) || db.prepare(`SELECT * FROM scrim_games WHERE scrim_id=? AND idx=?`).get(scrimId, gameIdx);
+  if (!gRow) {
+    try { q.addGame.run(scrimId, gameIdx, `Game ${gameIdx}`); } catch {}
+  }
+
+  const teams = q.teamsByScrim.all(scrimId);
+  const scoring = getScrimScoring(scrim);
+
+  // load current manual rows (if any), else blank
+  const existing = q.manualResultsByGame.all(scrimId, gameIdx);
+  const byPlace = new Map();
+  for (const r of existing) byPlace.set(Number(r.place), r);
+
+  // build 1..20 rows (you can scroll + edit)
+  const rows = Array.from({ length: 20 }, (_, i) => {
+    const place = i + 1;
+    const r = byPlace.get(place);
+    return { place, team_tag: r?.team_tag || "", kills: Number(r?.kills || 0) };
+  });
+
+  const teamOptions = [`<option value="">-- none --</option>`].concat(
+    teams.map(t => `<option value="${esc(t.team_tag)}">${esc(t.team_tag)} — ${esc(t.team_name || "")} (slot ${esc(String(t.slot))})</option>`)
+  ).join("");
+
+  res.send(renderLayout({
+    title: `Edit Game ${gameIdx} • ${scrim.name}`,
+    user: req.session.user,
+    selectedGuild: { id: guildId, name: req.session.selectedGuildName || "Selected" },
+    active: "scrims",
+    body: `
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap">
+          <div>
+            <h2 class="h" style="margin:0">Game ${gameIdx} — Manual Editor</h2>
+            <p class="muted" style="margin:6px 0 0 0">Pick the team for each placement and enter kills. This will override OCR for this game.</p>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center">
+            <a class="btn" href="/scrims/${scrimId}/results">Back to Results</a>
+          </div>
+        </div>
+
+        <div style="margin-top:12px; padding:10px; border:1px solid rgba(255,255,255,.08); border-radius:10px">
+          <div class="muted" style="font-size:13px">
+            Scoring: kills=${esc(String(scoring.killPoints))} pt each • places: 1=${esc(String(scoring.p1))}, 2=${esc(String(scoring.p2))}, 3=${esc(String(scoring.p3))}, 4=${esc(String(scoring.p4))}, 5=${esc(String(scoring.p5))}, 6=${esc(String(scoring.p6))}, 7=${esc(String(scoring.p7))}, 8=${esc(String(scoring.p8))}, 9+=${esc(String(scoring.p9plus))}
+          </div>
+        </div>
+
+        <form method="POST" action="/scrims/${scrimId}/results/game/${gameIdx}/save">
+          <div class="tablewrap" style="margin-top:12px">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th style="width:70px">Place</th>
+                  <th>Team</th>
+                  <th style="width:110px">Kills</th>
+                  <th style="width:140px">Computed pts</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map(r => {
+                  const pts = placementPoints(r.place, scoring) + (Number(r.kills||0) * Number(scoring.killPoints||0));
+                  return `
+                    <tr>
+                      <td><b>${esc(String(r.place))}</b></td>
+                      <td>
+                        <select name="team_${r.place}">
+                          ${[`<option value="">-- none --</option>`].concat(teams.map(t => `<option value="${esc(t.team_tag)}" ${(String(t.team_tag||"").trim()===String(r.team_tag||"").trim()) ? "selected" : ""}>${esc(t.team_tag)} — ${esc(t.team_name || "")} (slot ${esc(String(t.slot))})</option>`)).join("")}
+                        </select>
+                      </td>
+                      <td><input type="number" min="0" max="200" name="kills_${r.place}" value="${esc(String(r.kills||0))}" /></td>
+                      <td>${esc(String(pts))}</td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap">
+            <button class="btn" type="submit">Save Game</button>
+          </div>
+        </form>
+
+        <form method="POST" action="/scrims/${scrimId}/results/game/${gameIdx}/delete" onsubmit="return confirm('Delete Game ${gameIdx}? This will remove screenshots + OCR + manual rows for this game.')">
+          <div style="margin-top:14px">
+            <button class="btn danger" type="submit">Delete this Game</button>
+          </div>
+        </form>
+      </div>
+    `
+  }));
+});
+
+app.post("/scrims/:id/results/game/:gameIdx/save", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const gameIdx = Number(req.params.gameIdx);
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  const teams = q.teamsByScrim.all(scrimId);
+  const validTags = new Set(teams.map(t => String(t.team_tag || "").trim()).filter(Boolean));
+
+  const scoring = getScrimScoring(scrim);
+
+  // Clear old manual rows for this game
+  try { q.clearManualGame.run(scrimId, gameIdx); } catch {}
+
+  // Save new rows
+  for (let place = 1; place <= 20; place++) {
+    const tag = String(req.body[`team_${place}`] || "").trim();
+    if (!tag) continue;
+    if (!validTags.has(tag)) continue;
+
+    const kills = Math.max(0, Math.trunc(Number(req.body[`kills_${place}`] || 0) || 0));
+    const pts = placementPoints(place, scoring) + (kills * Number(scoring.killPoints || 0));
+
+    q.saveManualResult.run(scrimId, gameIdx, tag, place, kills, pts);
+  }
+
   res.redirect(`/scrims/${scrimId}/results`);
 });
 
+app.post("/scrims/:id/results/game/:gameIdx/delete", requireLogin, (req, res) => {
+  const guildId = req.session.selectedGuildId;
+  const scrimId = Number(req.params.id);
+  const gameIdx = Number(req.params.gameIdx);
+
+  const scrim = q.scrimById.get(scrimId);
+  if (!scrim || scrim.guild_id !== guildId) return res.status(404).send("Scrim not found");
+
+  // Delete manual + OCR + screenshots + points for this game
+  try { q.clearManualGame.run(scrimId, gameIdx); } catch {}
+  try { db.prepare(`DELETE FROM scrim_results WHERE scrim_id=? AND game=?`).run(scrimId, gameIdx); } catch {}
+  try { db.prepare(`DELETE FROM result_screenshots WHERE scrim_id=? AND game_idx=?`).run(scrimId, gameIdx); } catch {}
+  try { db.prepare(`DELETE FROM results_points WHERE scrim_id=? AND game_idx=?`).run(scrimId, gameIdx); } catch {}
+  try { db.prepare(`DELETE FROM scrim_games WHERE scrim_id=? AND idx=?`).run(scrimId, gameIdx); } catch {}
+
+  res.redirect(`/scrims/${scrimId}/results`);
+});
 
 app.post("/scrims/:id/results", requireLogin, (req, res) => {
   const guildId = req.session.selectedGuildId;
