@@ -127,6 +127,16 @@ function normalizeForLines(t) {
     .replace(/[^\S\r\n]+/g, " ")       // compress spaces but keep \n
     .replace(/[^A-Z0-9\r\n ]/g, " ");  // strip symbols but keep \n
 }
+function ffmpegSafeText(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'")
+    .replace(/%/g, "\\%")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
+}
 
 function parseScoreboardRows(ocrText) {
   const rawLines = String(ocrText || "")
@@ -278,11 +288,28 @@ function renderSlotGif({ templateKey, scrimId, slot, teamName, teamTag }) {
 
     const tagX = tagF.alignRight ? `(w-text_w-${Math.max(10, (cfg.width || 800) - tagF.x)})` : String(tagF.x);
 
-    const filters = [
-      `drawtext=fontfile='${fontFile}':text='${escDrawtext(slotText)}':x=${slotF.x}:y=${slotF.y}:fontsize=${slotF.size}:fontcolor=${slotF.color}:borderw=${slotF.strokeW}:bordercolor=${slotF.stroke}`,
-      `drawtext=fontfile='${fontFile}':text='${escDrawtext(nameText)}':x=${nameF.x}:y=${nameF.y}:fontsize=${nameF.size}:fontcolor=${nameF.color}:borderw=${nameF.strokeW}:bordercolor=${nameF.stroke}`,
-      `drawtext=fontfile='${fontFile}':text='${escDrawtext(tagText)}':x=${tagX}:y=${tagF.y}:fontsize=${tagF.size}:fontcolor=${tagF.color}:borderw=${tagF.strokeW}:bordercolor=${tagF.stroke}`,
-    ];
+  function drawText({ text, x, y, size = 40 }) {
+  const safe = ffmpegSafeText(text);
+
+  return (
+    "drawtext=" +
+    "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:" +
+    `text='${safe}':` +
+    `x=${x}:y=${y}:` +
+    `fontsize=${size}:` +
+    "fontcolor=white:" +
+    "borderw=3:bordercolor=black"
+  );
+}
+const filters = [
+  drawText({ text: "ESPORTS", x: 150, y: 20 }),
+  drawText({ text: team.tag, x: "(w-text_w-300)", y: 20 }),
+];
+
+ffmpeg(input)
+  .videoFilters(filters)
+  .save(output);
+
 
     ffmpeg(t.base)
       .outputOptions(["-vf", filters.join(","), "-gifflags", "+transdiff"])
@@ -533,18 +560,35 @@ function getScrimScoring(scrim) {
   }
 }
 
-function placementPoints(place, scoring = defaultScoring()) {
-  const p = Number(place) || 0;
-  if (p === 1) return scoring.p1;
-  if (p === 2) return scoring.p2;
-  if (p === 3) return scoring.p3;
-  if (p === 4) return scoring.p4;
-  if (p === 5) return scoring.p5;
-  if (p === 6) return scoring.p6;
-  if (p === 7) return scoring.p7;
-  if (p === 8) return scoring.p8;
-  return scoring.p9plus; // 9+
+function placementPoints(place, rankMap) {
+  return rankMap?.[place] ?? 0;
 }
+
+function scoreRow(row, teams, rankMap) {
+  for (const team of teams) {
+    const tag = team.team_tag.toUpperCase();
+    const matched = row.players.filter(p =>
+      p.toUpperCase().includes(tag)
+    ).length;
+
+    if (matched >= 2) {
+      const kills = row.kills.reduce((a, b) => a + b, 0);
+      const placePts = placementPoints(row.place, rankMap);
+      const total = placePts + kills;
+
+      return {
+        scrim_id: row.scrimId,
+        game: row.game,
+        team_tag: team.team_tag,
+        place: row.place,
+        kills,
+        points: total,
+      };
+    }
+  }
+  return null;
+}
+
 function normName(s) {
   return String(s || "")
     .toUpperCase()
@@ -4538,78 +4582,53 @@ discord.on("messageCreate", async (msg) => {
     if (!msg.guild || msg.author.bot) return;
 
     // ---------- START MATCH ----------
-    if (msg.content.startsWith("!match ")) {
-      const parts = msg.content.trim().split(/\s+/);
+if (msg.content === "!match done") {
+  const session = matchSessions.get(msg.channel.id);
+  if (!session) return msg.reply("❌ No active match.");
 
-      // finish
-      if (parts.length === 2 && parts[1].toLowerCase() === "done") {
-        const session = matchSessions.get(msg.channel.id);
-        if (!session) return msg.reply("❌ No active match session in this channel.");
+  const { scrimId, game, images } = session;
+  matchSessions.delete(msg.channel.id);
 
-        const { scrimId, game, images } = session;
-        matchSessions.delete(msg.channel.id);
+  if (!images.length) return msg.reply("❌ No screenshots uploaded.");
 
-        if (!images.length) return msg.reply("❌ No screenshots uploaded.");
+  const scrim = q.scrimById.get(scrimId);
+  const rankMap = getRankPointsForScrim(scrim);
+  const teams = q.teamsByScrim.all(scrimId);
 
-        const scrim = q.scrimById.get(scrimId);
-        if (!scrim) return msg.reply("❌ Scrim not found.");
+  let saved = 0;
 
-        const teams = q.teamsByScrim.all(scrimId);
-        const teamsForDetect = teams.map(t => ({ team_tag: String(t.team_tag || "").toUpperCase(), tag: String(t.team_tag || "").toUpperCase(), team_name: t.team_name }));
-        const scoring = getScrimScoring(scrim);
+  for (const url of images) {
+    const text = await ocrImageFromUrl(url);
+    const rows = buildRowsFromOCR(text); // must return [{ place, players[], kills[] }]
 
-        let saved = 0;
+    for (const row of rows) {
+      const scored = scoreRow(
+        { ...row, scrimId, game },
+        teams,
+        rankMap
+      );
 
-        for (const url of images) {
-          const text = await ocrImageFromUrl(url);
-          const parsed = parseResults(text, teamsForDetect);
+      if (!scored) continue;
 
-          for (const r of parsed) {
-            const pts = totalPoints(r.place, r.kills, scoring);
-            q.saveResult.run(scrimId, game, r.tag, r.place, r.kills, pts);
-            saved++;
-          }
-        }
+      q.saveResult.run(
+        scored.scrim_id,
+        scored.game,
+        scored.team_tag,
+        scored.place,
+        scored.kills,
+        scored.points
+      );
 
-        return msg.reply(
-          `🏁 **Scrim ${scrimId} • Game ${game} Saved**\n` +
-          `✅ Rows written/updated: **${saved}**\n` +
-          `Tip: If numbers look wrong, upload clearer screenshots (full scoreboard).`
-        );
-      }
-
-      // start: !match <scrimId> <gameNumber>
-      if (parts.length === 3) {
-        const scrimId = Number(parts[1]);
-        const game = Number(parts[2]);
-        if (!scrimId || !game) return msg.reply("❌ Invalid numbers. Use: `!match <scrimId> <gameNumber>`");
-
-        const scrim = q.scrimById.get(scrimId);
-        if (!scrim || String(scrim.guild_id) !== String(msg.guild.id)) {
-          return msg.reply("❌ Scrim not found in this server.");
-        }
-
-        if (!scrim.gamesc_channel_id) {
-          return msg.reply("❌ GameSC channel is not set in scrim settings (panel).");
-        }
-
-        if (String(msg.channel.id) !== String(scrim.gamesc_channel_id)) {
-          return msg.reply(`❌ Use this only in <#${scrim.gamesc_channel_id}>`);
-        }
-
-        matchSessions.set(msg.channel.id, { scrimId, game, images: [] });
-
-        return msg.reply(
-          `✅ **Started OCR session**\n` +
-          `Scrim **${scrimId}** • Game **${game}**\n\n` +
-          `Now upload all result screenshots in this channel.\n` +
-          `When finished type: **!match done**`
-        );
-      }
-
-      // wrong usage
-      return msg.reply("Usage:\n- `!match <scrimId> <gameNumber>`\n- `!match done`");
+      saved++;
     }
+  }
+
+  return msg.reply(
+    `🏁 Scrim ${scrimId} • Game ${game} Saved\n` +
+    `✅ Rows written/updated: ${saved}\n` +
+    `Tip: Upload clear full scoreboard screenshots`
+  );
+}
 
     // ---------- COLLECT IMAGES ----------
     if (msg.attachments.size && matchSessions.has(msg.channel.id)) {
