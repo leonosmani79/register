@@ -119,39 +119,6 @@ async function ocrImageFromUrl(url) {
   const [result] = await visionClient.textDetection(url);
   return result.fullTextAnnotation?.text || "";
 }
-function getPlacementPoints(place) {
-  if (place === 1) return 10;
-  if (place === 2) return 6;
-  if (place === 3) return 5;
-  if (place === 4) return 4;
-  if (place === 5) return 3;
-  if (place === 6) return 2;
-  if (place === 7 || place === 8) return 1;
-  return 0;
-}
-
-function scoreRowByTeam(row, teams) {
-  for (const team of teams) {
-    const tag = team.team_tag.toUpperCase();
-
-    const matchedPlayers = row.players.filter(p =>
-      p.toUpperCase().includes(tag)
-    );
-
-    if (matchedPlayers.length >= 2) {
-      const kills = row.kills.reduce((a, b) => a + b, 0);
-      const placePts = getPlacementPoints(row.place);
-
-      return {
-        team_tag: team.team_tag,
-        place: row.place,
-        kills,
-        points: placePts + kills,
-      };
-    }
-  }
-  return null;
-}
 
 function normalizeForLines(t) {
   // keep newlines, normalize each line
@@ -159,16 +126,6 @@ function normalizeForLines(t) {
     .toUpperCase()
     .replace(/[^\S\r\n]+/g, " ")       // compress spaces but keep \n
     .replace(/[^A-Z0-9\r\n ]/g, " ");  // strip symbols but keep \n
-}
-function ffmpegSafeText(text) {
-  if (!text) return "";
-  return String(text)
-    .replace(/\\/g, "\\\\")
-    .replace(/:/g, "\\:")
-    .replace(/'/g, "\\'")
-    .replace(/%/g, "\\%")
-    .replace(/\[/g, "\\[")
-    .replace(/\]/g, "\\]");
 }
 
 function parseScoreboardRows(ocrText) {
@@ -321,28 +278,11 @@ function renderSlotGif({ templateKey, scrimId, slot, teamName, teamTag }) {
 
     const tagX = tagF.alignRight ? `(w-text_w-${Math.max(10, (cfg.width || 800) - tagF.x)})` : String(tagF.x);
 
-  function drawText({ text, x, y, size = 40 }) {
-  const safe = ffmpegSafeText(text);
-
-  return (
-    "drawtext=" +
-    "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:" +
-    `text='${safe}':` +
-    `x=${x}:y=${y}:` +
-    `fontsize=${size}:` +
-    "fontcolor=white:" +
-    "borderw=3:bordercolor=black"
-  );
-}
-const filters = [
-  drawText({ text: "ESPORTS", x: 150, y: 20 }),
-  drawText({ text: team.tag, x: "(w-text_w-300)", y: 20 }),
-];
-
-ffmpeg(input)
-  .videoFilters(filters)
-  .save(output);
-
+    const filters = [
+      `drawtext=fontfile='${fontFile}':text='${escDrawtext(slotText)}':x=${slotF.x}:y=${slotF.y}:fontsize=${slotF.size}:fontcolor=${slotF.color}:borderw=${slotF.strokeW}:bordercolor=${slotF.stroke}`,
+      `drawtext=fontfile='${fontFile}':text='${escDrawtext(nameText)}':x=${nameF.x}:y=${nameF.y}:fontsize=${nameF.size}:fontcolor=${nameF.color}:borderw=${nameF.strokeW}:bordercolor=${nameF.stroke}`,
+      `drawtext=fontfile='${fontFile}':text='${escDrawtext(tagText)}':x=${tagX}:y=${tagF.y}:fontsize=${tagF.size}:fontcolor=${tagF.color}:borderw=${tagF.strokeW}:bordercolor=${tagF.stroke}`,
+    ];
 
     ffmpeg(t.base)
       .outputOptions(["-vf", filters.join(","), "-gifflags", "+transdiff"])
@@ -593,35 +533,18 @@ function getScrimScoring(scrim) {
   }
 }
 
-function placementPoints(place, rankMap) {
-  return rankMap?.[place] ?? 0;
+function placementPoints(place, scoring = defaultScoring()) {
+  const p = Number(place) || 0;
+  if (p === 1) return scoring.p1;
+  if (p === 2) return scoring.p2;
+  if (p === 3) return scoring.p3;
+  if (p === 4) return scoring.p4;
+  if (p === 5) return scoring.p5;
+  if (p === 6) return scoring.p6;
+  if (p === 7) return scoring.p7;
+  if (p === 8) return scoring.p8;
+  return scoring.p9plus; // 9+
 }
-
-function scoreRow(row, teams, rankMap) {
-  for (const team of teams) {
-    const tag = team.team_tag.toUpperCase();
-    const matched = row.players.filter(p =>
-      p.toUpperCase().includes(tag)
-    ).length;
-
-    if (matched >= 2) {
-      const kills = row.kills.reduce((a, b) => a + b, 0);
-      const placePts = placementPoints(row.place, rankMap);
-      const total = placePts + kills;
-
-      return {
-        scrim_id: row.scrimId,
-        game: row.game,
-        team_tag: team.team_tag,
-        place: row.place,
-        kills,
-        points: total,
-      };
-    }
-  }
-  return null;
-}
-
 function normName(s) {
   return String(s || "")
     .toUpperCase()
@@ -2584,41 +2507,47 @@ app.get("/servers", requireLogin, async (req, res) => {
     const manageable = guilds.filter(hasManagePermission);
     const filtered = manageable.filter((g) => botIsInGuild(g.id));
 
+    const tableRows = filtered
+      .map(
+        (g) => `
+        <tr>
+          <td>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <b>${esc(g.name)}</b>
+              <span class="muted" style="font-size:12px">${esc(g.id)}</span>
+            </div>
+          </td>
+          <td>
+            <form method="POST" action="/servers/select" style="margin:0">
+              <input type="hidden" name="guildId" value="${esc(g.id)}"/>
+              <input type="hidden" name="guildName" value="${esc(g.name)}"/>
+              <button type="submit">Manage</button>
+            </form>
+          </td>
+        </tr>`
+      )
+      .join("");
 
-  const cards = filtered.map((g) => `
-  <div class="cardItem">
-    <div class="cardTop">
-      <div>
-        <div class="cardName">${esc(g.name)}</div>
-        <div class="cardId">${esc(g.id)}</div>
-      </div>
-    </div>
-    <div class="cardActions">
-      <form method="POST" action="/servers/select">
-        <input type="hidden" name="guildId" value="${esc(g.id)}"/>
-        <input type="hidden" name="guildName" value="${esc(g.name)}"/>
-        <button type="submit">Manage</button>
-      </form>
-    </div>
-  </div>
-`).join("");
-const rows = filtered.map((g) => `
-  <tr>
-    <td>
-      <div style="display:flex; flex-direction:column; gap:4px;">
-        <div style="font-weight:700;">${esc(g.name)}</div>
-        <div class="muted" style="font-size:12px;">${esc(g.id)}</div>
-      </div>
-    </td>
-    <td>
-      <form method="POST" action="/servers/select" style="margin:0;">
-        <input type="hidden" name="guildId" value="${esc(g.id)}"/>
-        <input type="hidden" name="guildName" value="${esc(g.name)}"/>
-        <button type="submit">Manage</button>
-      </form>
-    </td>
-  </tr>
-`).join("");
+    const cards = filtered
+      .map(
+        (g) => `
+        <div class="cardItem">
+          <div class="cardTop">
+            <div>
+              <div class="cardName">${esc(g.name)}</div>
+              <div class="cardId">${esc(g.id)}</div>
+            </div>
+          </div>
+          <div class="cardActions">
+            <form method="POST" action="/servers/select">
+              <input type="hidden" name="guildId" value="${esc(g.id)}"/>
+              <input type="hidden" name="guildName" value="${esc(g.name)}"/>
+              <button type="submit">Manage</button>
+            </form>
+          </div>
+        </div>`
+      )
+      .join("");
 
     const note =
       filtered.length === 0
@@ -2634,22 +2563,20 @@ const rows = filtered.map((g) => `
         user: req.session.user,
         selectedGuild: null,
         active: "servers",
-       body: `
-  <h2 class="h">Choose a server</h2>
-  <p class="muted">Showing only servers you manage <b>AND</b> where the bot is installed.</p>
-  ${note}
+        body: `
+          <h2 class="h">Choose a server</h2>
+          <p class="muted">Showing only servers you manage <b>AND</b> where the bot is installed.</p>
+          ${note}
 
-  <table class="hideOnMobile">
-    <thead><tr><th>Server</th><th>Action</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
-  </table>
+          <table class="hideOnMobile">
+            <thead><tr><th>Server</th><th>Action</th></tr></thead>
+            <tbody>${tableRows || `<tr><td colspan="2">No servers to show.</td></tr>`}</tbody>
+          </table>
 
-  <div class="showOnMobile">
-    ${cards || `<div class="warn">No servers to show.</div>`}
-  </div>
-`
-
-,
+          <div class="showOnMobile">
+            ${cards || `<div class="warn">No servers to show.</div>`}
+          </div>
+        `,
       })
     );
   } catch (e) {
@@ -2673,6 +2600,47 @@ app.get("/scrims", requireLogin, (req, res) => {
   if (!guildId) return res.redirect("/servers");
 
   const scrims = q.scrimsByGuild.all(guildId);
+
+  const rows = scrims
+    .map(
+      (s) => `
+    <tr>
+      <td>
+        <div class="scrimTitle">${esc(s.name)}</div>
+        <div class="muted">Scrim ID: ${s.id}</div>
+      </td>
+
+      <td>
+        <span class="status ${s.registration_open ? "ok" : "bad"}">
+          ${s.registration_open ? "OPEN" : "CLOSED"}
+        </span>
+      </td>
+
+      <td>
+        <span class="status ${s.confirm_open ? "ok" : "bad"}">
+          ${s.confirm_open ? "OPEN" : "CLOSED"}
+        </span>
+      </td>
+
+      <td style="width:460px">
+        <div class="row">
+          <a class="btn2 primary" href="/scrims/${s.id}">Manage</a>
+          <form method="POST" action="/scrims/${s.id}/clear" style="margin:0">
+  <button class="btn2" type="submit" onclick="return confirm('Clear ALL slots + results and remove team roles?')">Clear</button>
+</form>
+
+          <form method="POST" action="/scrims/${s.id}/toggleReg" style="margin:0">
+            <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
+          </form>
+
+          <form method="POST" action="/scrims/${s.id}/toggleConfirm" style="margin:0">
+            <button class="btn2" type="submit">${s.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
+          </form>
+        </div>
+      </td>
+    </tr>`
+    )
+    .join("");
 
   res.send(
     renderLayout({
@@ -2889,6 +2857,44 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
   const totalSlots = scrim.max_slot - scrim.min_slot + 1;
 
   // TABLE ROWS (desktop)
+  const rows = teams.map((t) => `
+    <tr>
+      <td><b>#${t.slot}</b></td>
+      <td>
+        <b>${esc(t.team_name)}</b>
+        <div class="muted">[${esc(t.team_tag)}] • TeamID: ${t.id}</div>
+      </td>
+      <td><code>${esc(t.owner_user_id)}</code></td>
+      <td>${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</td>
+      <td style="width:420px">
+        <div class="row" style="gap:8px; align-items:flex-start">
+
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept" style="margin:0">
+            <button class="btn2" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
+          </form>
+
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete" style="margin:0"
+                onsubmit="return confirm('Delete slot #${t.slot} (${t.team_tag})?')">
+            <button class="btn2" type="submit">Delete</button>
+          </form>
+
+          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
+                onsubmit="return confirm('Ban this user?')">
+            <div class="banBox">
+              <input class="banInput" name="reason" placeholder="Reason (optional)" value="Banned by staff" />
+              <select class="banSelect" name="mode">
+                <option value="perm">Perm</option>
+                <option value="days" selected>Days</option>
+              </select>
+              <input class="banDays" name="days" type="number" min="1" max="365" value="7" />
+              <button class="btn2" type="submit">Ban</button>
+            </div>
+          </form>
+
+        </div>
+      </td>
+    </tr>
+  `).join("");
 
   // MOBILE TEAM CARDS (slots visible on phone)
   const teamCards = teams.map((t) => `
@@ -4539,54 +4545,78 @@ discord.on("messageCreate", async (msg) => {
     if (!msg.guild || msg.author.bot) return;
 
     // ---------- START MATCH ----------
-if (msg.content === "!match done") {
-  const session = matchSessions.get(msg.channel.id);
-  if (!session) return msg.reply("❌ No active match.");
+    if (msg.content.startsWith("!match ")) {
+      const parts = msg.content.trim().split(/\s+/);
 
-  const { scrimId, game, images } = session;
-  matchSessions.delete(msg.channel.id);
+      // finish
+      if (parts.length === 2 && parts[1].toLowerCase() === "done") {
+        const session = matchSessions.get(msg.channel.id);
+        if (!session) return msg.reply("❌ No active match session in this channel.");
 
-  if (!images.length) return msg.reply("❌ No screenshots uploaded.");
+        const { scrimId, game, images } = session;
+        matchSessions.delete(msg.channel.id);
 
-  const teams = q.teamsByScrim.all(scrimId);
-  let rows = [];
+        if (!images.length) return msg.reply("❌ No screenshots uploaded.");
 
-  // ---- OCR ALL IMAGES INTO ONE rows ARRAY ----
-  for (const url of images) {
-    const text = await ocrImageFromUrl(url);
+        const scrim = q.scrimById.get(scrimId);
+        if (!scrim) return msg.reply("❌ Scrim not found.");
 
-    const parsedRows = buildRowsFromOCR(text);
-    // buildRowsFromOCR MUST return:
-    // [{place: 1, players: ["DSxAAA", "DSxBBB", "XYZ", "QWE"], kills: [4, 3, 1, 0]}]
+        const teams = q.teamsByScrim.all(scrimId);
+        const teamsForDetect = teams.map(t => ({ team_tag: String(t.team_tag || "").toUpperCase(), tag: String(t.team_tag || "").toUpperCase(), team_name: t.team_name }));
+        const scoring = getScrimScoring(scrim);
 
+        let saved = 0;
 
-    rows.push(...parsedRows);
-  }
+        for (const url of images) {
+          const text = await ocrImageFromUrl(url);
+          const parsed = parseResults(text, teamsForDetect);
 
-  let saved = 0;
+          for (const r of parsed) {
+            const pts = totalPoints(r.place, r.kills, scoring);
+            q.saveResult.run(scrimId, game, r.tag, r.place, r.kills, pts);
+            saved++;
+          }
+        }
 
-  for (const row of rows) {
-    const scored = scoreRowByTeam(row, teams);
-    if (!scored) continue;
+        return msg.reply(
+          `🏁 **Scrim ${scrimId} • Game ${game} Saved**\n` +
+          `✅ Rows written/updated: **${saved}**\n` +
+          `Tip: If numbers look wrong, upload clearer screenshots (full scoreboard).`
+        );
+      }
 
-    q.saveResult.run(
-      scrimId,
-      game,
-      scored.team_tag,
-      scored.place,
-      scored.kills,
-      scored.points
-    );
+      // start: !match <scrimId> <gameNumber>
+      if (parts.length === 3) {
+        const scrimId = Number(parts[1]);
+        const game = Number(parts[2]);
+        if (!scrimId || !game) return msg.reply("❌ Invalid numbers. Use: `!match <scrimId> <gameNumber>`");
 
-    saved++;
-  }
+        const scrim = q.scrimById.get(scrimId);
+        if (!scrim || String(scrim.guild_id) !== String(msg.guild.id)) {
+          return msg.reply("❌ Scrim not found in this server.");
+        }
 
-  return msg.reply(
-    `🏁 Scrim ${scrimId} • Game ${game} Saved\n` +
-    `✅ Rows written/updated: ${saved}`
-  );
-}
+        if (!scrim.gamesc_channel_id) {
+          return msg.reply("❌ GameSC channel is not set in scrim settings (panel).");
+        }
 
+        if (String(msg.channel.id) !== String(scrim.gamesc_channel_id)) {
+          return msg.reply(`❌ Use this only in <#${scrim.gamesc_channel_id}>`);
+        }
+
+        matchSessions.set(msg.channel.id, { scrimId, game, images: [] });
+
+        return msg.reply(
+          `✅ **Started OCR session**\n` +
+          `Scrim **${scrimId}** • Game **${game}**\n\n` +
+          `Now upload all result screenshots in this channel.\n` +
+          `When finished type: **!match done**`
+        );
+      }
+
+      // wrong usage
+      return msg.reply("Usage:\n- `!match <scrimId> <gameNumber>`\n- `!match done`");
+    }
 
     // ---------- COLLECT IMAGES ----------
     if (msg.attachments.size && matchSessions.has(msg.channel.id)) {
