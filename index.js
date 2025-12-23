@@ -2602,6 +2602,23 @@ app.get("/servers", requireLogin, async (req, res) => {
     </div>
   </div>
 `).join("");
+const rows = filtered.map((g) => `
+  <tr>
+    <td>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <div style="font-weight:700;">${esc(g.name)}</div>
+        <div class="muted" style="font-size:12px;">${esc(g.id)}</div>
+      </div>
+    </td>
+    <td>
+      <form method="POST" action="/servers/select" style="margin:0;">
+        <input type="hidden" name="guildId" value="${esc(g.id)}"/>
+        <input type="hidden" name="guildName" value="${esc(g.name)}"/>
+        <button type="submit">Manage</button>
+      </form>
+    </td>
+  </tr>
+`).join("");
 
     const note =
       filtered.length === 0
