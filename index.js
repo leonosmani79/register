@@ -119,6 +119,39 @@ async function ocrImageFromUrl(url) {
   const [result] = await visionClient.textDetection(url);
   return result.fullTextAnnotation?.text || "";
 }
+function getPlacementPoints(place) {
+  if (place === 1) return 10;
+  if (place === 2) return 6;
+  if (place === 3) return 5;
+  if (place === 4) return 4;
+  if (place === 5) return 3;
+  if (place === 6) return 2;
+  if (place === 7 || place === 8) return 1;
+  return 0;
+}
+
+function scoreRowByTeam(row, teams) {
+  for (const team of teams) {
+    const tag = team.team_tag.toUpperCase();
+
+    const matchedPlayers = row.players.filter(p =>
+      p.toUpperCase().includes(tag)
+    );
+
+    if (matchedPlayers.length >= 2) {
+      const kills = row.kills.reduce((a, b) => a + b, 0);
+      const placePts = getPlacementPoints(row.place);
+
+      return {
+        team_tag: team.team_tag,
+        place: row.place,
+        kills,
+        points: placePts + kills,
+      };
+    }
+  }
+  return null;
+}
 
 function normalizeForLines(t) {
   // keep newlines, normalize each line
@@ -2551,21 +2584,7 @@ app.get("/servers", requireLogin, async (req, res) => {
     const manageable = guilds.filter(hasManagePermission);
     const filtered = manageable.filter((g) => botIsInGuild(g.id));
 
-    const rows = filtered
-      .map(
-        (g) => `
-      <tr>
-        <td><b>${esc(g.name)}</b><div class="muted">${esc(g.id)}</div></td>
-        <td style="width:220px">
-          <form method="POST" action="/servers/select">
-            <input type="hidden" name="guildId" value="${esc(g.id)}"/>
-            <input type="hidden" name="guildName" value="${esc(g.name)}"/>
-            <button type="submit">Manage</button>
-          </form>
-        </td>
-      </tr>`
-      )
-      .join("");
+
   const cards = filtered.map((g) => `
   <div class="cardItem">
     <div class="cardTop">
@@ -2637,47 +2656,6 @@ app.get("/scrims", requireLogin, (req, res) => {
   if (!guildId) return res.redirect("/servers");
 
   const scrims = q.scrimsByGuild.all(guildId);
-
-  const rows = scrims
-    .map(
-      (s) => `
-    <tr>
-      <td>
-        <div class="scrimTitle">${esc(s.name)}</div>
-        <div class="muted">Scrim ID: ${s.id}</div>
-      </td>
-
-      <td>
-        <span class="status ${s.registration_open ? "ok" : "bad"}">
-          ${s.registration_open ? "OPEN" : "CLOSED"}
-        </span>
-      </td>
-
-      <td>
-        <span class="status ${s.confirm_open ? "ok" : "bad"}">
-          ${s.confirm_open ? "OPEN" : "CLOSED"}
-        </span>
-      </td>
-
-      <td style="width:460px">
-        <div class="row">
-          <a class="btn2 primary" href="/scrims/${s.id}">Manage</a>
-          <form method="POST" action="/scrims/${s.id}/clear" style="margin:0">
-  <button class="btn2" type="submit" onclick="return confirm('Clear ALL slots + results and remove team roles?')">Clear</button>
-</form>
-
-          <form method="POST" action="/scrims/${s.id}/toggleReg" style="margin:0">
-            <button class="btn2" type="submit">${s.registration_open ? "Close Reg" : "Open Reg"}</button>
-          </form>
-
-          <form method="POST" action="/scrims/${s.id}/toggleConfirm" style="margin:0">
-            <button class="btn2" type="submit">${s.confirm_open ? "Close Confirms" : "Open Confirms"}</button>
-          </form>
-        </div>
-      </td>
-    </tr>`
-    )
-    .join("");
 
   res.send(
     renderLayout({
@@ -2894,44 +2872,6 @@ app.get("/scrims/:id", requireLogin, async (req, res) => {
   const totalSlots = scrim.max_slot - scrim.min_slot + 1;
 
   // TABLE ROWS (desktop)
-  const rows = teams.map((t) => `
-    <tr>
-      <td><b>#${t.slot}</b></td>
-      <td>
-        <b>${esc(t.team_name)}</b>
-        <div class="muted">[${esc(t.team_tag)}] • TeamID: ${t.id}</div>
-      </td>
-      <td><code>${esc(t.owner_user_id)}</code></td>
-      <td>${t.confirmed ? "✅ Confirmed" : "⏳ Waiting"}</td>
-      <td style="width:420px">
-        <div class="row" style="gap:8px; align-items:flex-start">
-
-          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/accept" style="margin:0">
-            <button class="btn2" type="submit" ${t.confirmed ? "disabled" : ""}>Accept</button>
-          </form>
-
-          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/delete" style="margin:0"
-                onsubmit="return confirm('Delete slot #${t.slot} (${t.team_tag})?')">
-            <button class="btn2" type="submit">Delete</button>
-          </form>
-
-          <form method="POST" action="/scrims/${scrimId}/team/${t.id}/ban" style="margin:0"
-                onsubmit="return confirm('Ban this user?')">
-            <div class="banBox">
-              <input class="banInput" name="reason" placeholder="Reason (optional)" value="Banned by staff" />
-              <select class="banSelect" name="mode">
-                <option value="perm">Perm</option>
-                <option value="days" selected>Days</option>
-              </select>
-              <input class="banDays" name="days" type="number" min="1" max="365" value="7" />
-              <button class="btn2" type="submit">Ban</button>
-            </div>
-          </form>
-
-        </div>
-      </td>
-    </tr>
-  `).join("");
 
   // MOBILE TEAM CARDS (slots visible on phone)
   const teamCards = teams.map((t) => `
@@ -4591,44 +4531,45 @@ if (msg.content === "!match done") {
 
   if (!images.length) return msg.reply("❌ No screenshots uploaded.");
 
-  const scrim = q.scrimById.get(scrimId);
-  const rankMap = getRankPointsForScrim(scrim);
   const teams = q.teamsByScrim.all(scrimId);
+  let rows = [];
+
+  // ---- OCR ALL IMAGES INTO ONE rows ARRAY ----
+  for (const url of images) {
+    const text = await ocrImageFromUrl(url);
+
+    const parsedRows = buildRowsFromOCR(text);
+    // buildRowsFromOCR MUST return:
+    // [{place: 1, players: ["DSxAAA", "DSxBBB", "XYZ", "QWE"], kills: [4, 3, 1, 0]}]
+
+
+    rows.push(...parsedRows);
+  }
 
   let saved = 0;
 
-  for (const url of images) {
-    const text = await ocrImageFromUrl(url);
-    const rows = buildRowsFromOCR(text); // must return [{ place, players[], kills[] }]
+  for (const row of rows) {
+    const scored = scoreRowByTeam(row, teams);
+    if (!scored) continue;
 
-    for (const row of rows) {
-      const scored = scoreRow(
-        { ...row, scrimId, game },
-        teams,
-        rankMap
-      );
+    q.saveResult.run(
+      scrimId,
+      game,
+      scored.team_tag,
+      scored.place,
+      scored.kills,
+      scored.points
+    );
 
-      if (!scored) continue;
-
-      q.saveResult.run(
-        scored.scrim_id,
-        scored.game,
-        scored.team_tag,
-        scored.place,
-        scored.kills,
-        scored.points
-      );
-
-      saved++;
-    }
+    saved++;
   }
 
   return msg.reply(
     `🏁 Scrim ${scrimId} • Game ${game} Saved\n` +
-    `✅ Rows written/updated: ${saved}\n` +
-    `Tip: Upload clear full scoreboard screenshots`
+    `✅ Rows written/updated: ${saved}`
   );
 }
+
 
     // ---------- COLLECT IMAGES ----------
     if (msg.attachments.size && matchSessions.has(msg.channel.id)) {
